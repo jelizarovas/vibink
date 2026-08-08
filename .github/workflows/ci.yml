@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vibink-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Vibink extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked toolchain
+        run: npm ci --ignore-scripts
+
+      - name: Run static checks
+        run: npm run check
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build and verify current release package
+        shell: bash
+        run: |
+          release_version="$(node --input-type=module -e "import { readFileSync } from 'node:fs'; process.stdout.write(JSON.parse(readFileSync('package.json', 'utf8')).version)")"
+          node scripts/release.mjs "--version=${release_version}" --no-publish

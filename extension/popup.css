@@ -1,0 +1,38 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #09090b;
+  color: #f4f4f5;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 340px; background: #09090b; }
+main { padding: 12px; }
+header { display: grid; grid-template-columns: 38px 1fr 10px; gap: 9px; align-items: center; }
+header img { border-radius: 11px; }
+h1 { margin: 0; font-size: 17px; line-height: 1.1; letter-spacing: -0.02em; }
+header p { margin: 3px 0 0; color: #a1a1aa; font-size: 11px; }
+.status-dot { width: 9px; height: 9px; border-radius: 999px; background: #52525b; box-shadow: 0 0 0 3px #27272a; }
+.status-dot.connected { background: #34d399; box-shadow: 0 0 0 3px rgb(52 211 153 / 18%); }
+button, input { font: inherit; }
+button { border: 1px solid #3f3f46; background: #27272a; color: #fafafa; border-radius: 7px; min-height: 31px; padding: 0 10px; cursor: pointer; }
+button:hover { background: #3f3f46; }
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+.primary { width: 100%; margin: 12px 0 8px; border-color: #8b5cf6; background: linear-gradient(135deg, #7c3aed, #5b21b6); font-weight: 700; }
+.primary:hover { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+.secondary { width: 100%; margin-top: 7px; color: #d4d4d8; }
+section { margin-top: 8px; border: 1px solid #27272a; border-radius: 10px; padding: 9px; background: #111113; }
+.section-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
+h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+#bridge-status { color: #a1a1aa; font-size: 10px; }
+label { display: block; margin: 7px 0 3px; color: #a1a1aa; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.field-row { display: grid; grid-template-columns: 1fr auto; gap: 5px; }
+input { width: 100%; min-width: 0; height: 31px; border: 1px solid #3f3f46; border-radius: 7px; padding: 0 8px; background: #18181b; color: #fafafa; }
+.icon-button { width: 34px; padding: 0; }
+.message { min-height: 15px; margin: 6px 0 0; color: #c4b5fd; font-size: 10px; }
+.message.error { color: #fda4af; }
+details { margin-top: 8px; border-top: 1px solid #27272a; padding-top: 7px; color: #a1a1aa; font-size: 10px; }
+summary { cursor: pointer; color: #d4d4d8; }
+details p { margin: 6px 0; }
+code { overflow-wrap: anywhere; color: #c4b5fd; }
+footer { margin-top: 8px; color: #71717a; font-size: 9px; text-align: center; }

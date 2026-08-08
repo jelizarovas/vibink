@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Vibink</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="vibink-mark.svg" width="38" height="38" alt="">
+        <div>
+          <h1>Vibink</h1>
+          <p>Vibe it. Ink it. Ship it.</p>
+        </div>
+        <span id="status-dot" class="status-dot" aria-label="Disconnected"></span>
+      </header>
+
+      <button id="toggle" class="primary" type="button">Open on this page</button>
+
+      <section aria-labelledby="bridge-heading">
+        <div class="section-heading">
+          <h2 id="bridge-heading">Local bridge</h2>
+          <span id="bridge-status">Checking…</span>
+        </div>
+        <label for="bridge-url">Bridge address</label>
+        <div class="field-row">
+          <input id="bridge-url" type="url" value="http://127.0.0.1:4327" spellcheck="false">
+          <button id="save-url" class="icon-button" type="button" title="Save bridge address" aria-label="Save bridge address">✓</button>
+        </div>
+        <label for="pairing-pin">One-time PIN</label>
+        <div class="field-row">
+          <input id="pairing-pin" type="text" inputmode="text" maxlength="9" placeholder="ABCD-2345" autocomplete="off" spellcheck="false">
+          <button id="pair" type="button">Pair</button>
+        </div>
+        <button id="disconnect" class="secondary" type="button" hidden>Disconnect this session</button>
+        <p id="message" class="message" role="status"></p>
+      </section>
+
+      <details>
+        <summary>Extension identity</summary>
+        <p>Use this ID as <code>VIBINK_EXTENSION_ID</code> when starting the private bridge.</p>
+        <code id="extension-id"></code>
+      </details>
+
+      <footer>Vibink stays local. Captures happen only when you press Capture.</footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
