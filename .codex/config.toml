@@ -1,0 +1,7 @@
+[mcp_servers.vibink]
+command = "node"
+args = ["bridge/vibink-bridge.mjs", "--allow-lan"]
+cwd = "C:/apps/vibink"
+env_vars = ["VIBINK_EXTENSION_ID", "VIBINK_HOST", "VIBINK_PORT"]
+enabled = true
+default_tools_approval_mode = "writes"

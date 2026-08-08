@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Vibink",
+  "version": "0.1.0",
+  "description": "Vibe it. Ink it. Ship it. Draw and point on any webpage while coding with Codex.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open Vibink",
+    "default_popup": "popup.html"
+  },
+  "commands": {
+    "toggle-vibink": {
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
+      "description": "Toggle Vibink on the current page"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  }
+}
