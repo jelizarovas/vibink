@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Vibink material V logo</title>
+  <desc id="desc">A descending white stroke meets a mirrored white pen to form a V on a purple Material-style tile.</desc>
+
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="#6D28D9"/>
+
+  <g fill="#FCFAFF">
+    <g transform="translate(138 159) rotate(60.67)">
+      <path d="M0-33A33 33 0 0 0 0 33H190L241 0 190-33Z"/>
+    </g>
+
+    <g transform="translate(256 369) rotate(-60.67)">
+      <path d="M0 0 56-36H228Q241-36 241-23V23Q241 36 228 36H56Z"/>
+      <path d="M176-36H196V36H176Z" fill="#C4B5FD"/>
+    </g>
+  </g>
+</svg>

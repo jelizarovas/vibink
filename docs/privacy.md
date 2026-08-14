@@ -8,8 +8,10 @@ Vibink is designed to communicate visual intent without building a record of bro
 - No Vibink account and no background browsing-history collection.
 - No voice capture, proxy, transcript, or recording. Voice stays native to Codex.
 - No durable storage of page text, selected content, screenshots, diagnostics, or personal information.
-- No access to cookies, saved passwords, browser storage, authorization headers, request/response bodies, or form values.
+- No automatic persistence of page state, captures, voice or transcripts, selections, annotations, or diagnostics into the repository brain.
+- No access to cookies, saved passwords, browser storage, authorization headers, request/response bodies, or page form values in Vibink context. An explicit local Write confirmation may write owner-reviewed text to the exact selected eligible field without sending that text to the bridge.
 - Clicking the capture control is explicit consent for one current-visible-tab screenshot; there is no second prompt. Diagnostics requires a separate session opt-in.
+- Durable brain entries are limited to append-only, owner-confirmed, non-PII reusable learnings in the installed Vibink repository; Vibink never chooses an arbitrary target repository.
 
 ## What Vibink handles
 
@@ -18,13 +20,26 @@ Vibink is designed to communicate visual intent without building a record of bro
 | Route and viewport | While Vibink is active | Current in-memory session | Local bridge; Codex only when explicitly read |
 | Drawings and shapes | When the user creates them | Current in-memory session | Local bridge; Codex only when explicitly read |
 | Selected target metadata | When the user selects a target | Bounded, sanitized in-memory session | Local bridge; Codex only when explicitly read |
+| Area selection | Select drag/marquee | Bounded normalized geometry and at most 12 minimal candidates | Local bridge; Codex only when explicitly read |
+| CSS draft proposal | Owner explicitly sends a local preview | Bounded property deltas in current session | Paired task only; no source mutation |
+| Handwriting draft metadata | Owner uses Write in an eligible selected field | Target, mode, status, and stroke count only | Local bridge; transcription text excluded |
 | Screenshot | Separate click on the capture control | Short-lived in bridge memory, then expired/cleared | Codex only when explicitly retrieved |
 | Diagnostics | Separate diagnostics opt-in | Bounded current session | Codex only when explicitly retrieved |
 | Pairing/session credentials | During an active local session | Session-scoped memory only | Extension and local bridge |
 | Extension preferences | When the user changes settings | `chrome.storage.local` | This browser profile only |
+| Assistant message | Codex deliberately sends a concise suggestion | Active authenticated session | Paired browser only; 500 characters maximum |
+| Assistant drawing/proposal | Codex deliberately publishes bounded visual feedback | Current page/context; proposal expires in five minutes | Paired browser only; separate from user ink |
+| Assistant PNG overlay | Codex deliberately publishes an eligible local PNG | In-memory; two minutes maximum | Paired authenticated browser only |
+| Repo learning | Owner explicitly confirms a specific non-PII learning | Append-only repository content | `brain/design`, `brain/interaction`, `brain/project`, or `brain/workflow` |
 | Voice | Native Codex Voice action | Not handled by Vibink | Outside Vibink |
 
 Extension preferences must never contain page content, pairing secrets, captures, diagnostics, or personal data.
+
+## Assistant feedback privacy
+
+`vibink_send_message` is capped at 500 characters. `vibink_draw` uses a bounded opaque palette and separate assistant layer. `vibink_publish_proposal` carries only normalized bounds, a bounded label/color, identifiers, and expiry; user adjustment/approval returns similarly bounded metadata. `vibink_publish_overlay` reads a PNG only from the exact per-bridge private directory and enforces the documented file/dimension/pixel/count/combined limits. Proposals expire after five minutes and PNG overlays after two.
+
+Every feedback path requires the authenticated active browser session and exact page/activation/context scope. MCP state summaries never contain an overlay path/base64 image or handwriting transcription. User annotations and assistant feedback stay separate. Visual-proposal approval confirms intent only; completion clearing occurs only after the trusted owner chooses **Looks good**. **Needs tweaks** preserves context, and pairing remains active either way.
 
 ## Consent is specific
 
@@ -58,7 +73,7 @@ This boundary is especially important for screenshots. A capture held in bridge 
 
 - The bridge listens on loopback unless LAN mode is explicitly enabled.
 - LAN mode is for a trusted private network, such as a development PC paired with a Surface Hub.
-- Pairing uses a short-lived one-time code and an opaque expiring session credential.
+- The current private development demo deliberately uses fixed PIN `0000`; a public-ready build restores a short-lived rotating code. The resulting opaque session credential remains expiring and session-scoped.
 - Credentials are kept out of logs and durable browser storage and are discarded on expiry or shutdown.
 - The bridge must never be publicly exposed, port-forwarded, or placed behind a public tunnel.
 
@@ -66,11 +81,14 @@ LAN access changes reachability, not retention: Vibink still keeps browser state
 
 ## Retention and deletion
 
-- Current route, viewport, annotations, selections, and diagnostics are in-memory session state.
+- Current route, viewport, annotations, selections, CSS/handwriting draft metadata, and diagnostics are in-memory session state.
 - Captures have a short time-to-live and should be cleared immediately after use.
+- Assistant messages are session feedback, and assistant PNG overlays expire within two minutes; page-context change, overlay shutdown, and disconnect clear overlay feedback earlier.
 - Navigation, viewport changes, explicit clear, session expiry, browser close, or bridge shutdown invalidates relevant state.
 - Uninstalling Vibink removes extension-held preferences through the browser. Stopping the bridge discards its in-memory session.
 - Vibink does not create a durable transcript, screenshot archive, diagnostic history, or user profile.
+
+The repo brain is the single deliberate durable exception. `vibink_list_learnings` reads it; `vibink_record_learning` appends only an explicitly owner-confirmed, sanitized non-PII learning to one of the four documented categories. It does not capture session material automatically, and it does not overwrite or delete earlier entries.
 
 Repository logs, tests, fixtures, examples, issues, and documentation must use fictitious data only. Never copy a live page payload into a bug report.
 
@@ -92,4 +110,4 @@ If the bridge cannot confirm an explicit Disconnect because the private connecti
 
 ## Future changes
 
-Any proposal for cloud sync, shared remote sessions, telemetry, durable learning, browser-history access, automatic capture, broader host permissions, or embedded voice requires explicit owner approval, an updated threat model, and a privacy review before implementation.
+Any proposal for cloud sync, shared remote sessions, telemetry, automatic or page-derived learning, browser-history access, automatic capture, broader host permissions, or embedded voice requires explicit owner approval, an updated threat model, and a privacy review before implementation.

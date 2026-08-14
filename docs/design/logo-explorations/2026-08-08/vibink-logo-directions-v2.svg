@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Vibink logo directions, round two</title>
+  <desc id="desc">Three purple icon directions: Vibe Stroke, Cursor Echo, and Live Canvas.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1800" y2="1120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#09070E"/>
+      <stop offset="1" stop-color="#160C27"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="45" y1="34" x2="440" y2="468" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B7A2FF"/>
+      <stop offset="0.42" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="whiteInk" x1="100" y1="120" x2="420" y2="400" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EDE9FE"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(145 105) rotate(46) scale(390)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="0.68" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+
+    <g id="tileBase">
+      <rect x="28" y="28" width="456" height="456" rx="118" fill="#100719" opacity="0.28"/>
+      <rect x="32" y="24" width="448" height="448" rx="112" fill="url(#tile)"/>
+      <rect x="32" y="24" width="448" height="448" rx="112" fill="url(#glow)"/>
+      <rect x="33" y="25" width="446" height="446" rx="111" fill="none" stroke="#FFFFFF" stroke-opacity="0.17" stroke-width="2"/>
+    </g>
+
+    <g id="vibeStroke">
+      <use href="#tileBase"/>
+      <path
+        d="M92 315 166 225 228 337 302 176 371 298 421 247"
+        fill="none"
+        stroke="url(#whiteInk)"
+        stroke-width="42"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <circle cx="443" cy="225" r="18" fill="#DDD6FE"/>
+    </g>
+
+    <g id="cursorEcho">
+      <use href="#tileBase"/>
+      <path
+        d="M130 110v283l78-70 52 111 54-27-52-108 113-15L130 110Z"
+        fill="url(#whiteInk)"
+        stroke="#FFFFFF"
+        stroke-opacity="0.18"
+        stroke-width="3"
+        stroke-linejoin="round"
+      />
+      <path d="M310 151c49 18 80 55 87 105" fill="none" stroke="#DDD6FE" stroke-width="24" stroke-linecap="round"/>
+      <path d="M340 101c74 27 122 85 132 160" fill="none" stroke="#DDD6FE" stroke-opacity="0.62" stroke-width="18" stroke-linecap="round"/>
+    </g>
+
+    <g id="liveCanvas">
+      <use href="#tileBase"/>
+      <path
+        d="M132 112h190l71 71v217H132V112Z"
+        fill="url(#whiteInk)"
+        stroke="#FFFFFF"
+        stroke-opacity="0.22"
+        stroke-width="3"
+        stroke-linejoin="round"
+      />
+      <path d="M322 112v71h71" fill="#C4B5FD" stroke="#8B5CF6" stroke-width="9" stroke-linejoin="round"/>
+      <path
+        d="M177 304c35-58 66 51 105-10 37-58 58 24 82-20"
+        fill="none"
+        stroke="#6D28D9"
+        stroke-width="25"
+        stroke-linecap="round"
+      />
+      <circle cx="373" cy="264" r="13" fill="#6D28D9"/>
+    </g>
+  </defs>
+
+  <rect width="1800" height="1120" fill="url(#page)"/>
+  <circle cx="1680" cy="-80" r="480" fill="#7C3AED" opacity="0.08"/>
+  <circle cx="0" cy="1110" r="420" fill="#A78BFA" opacity="0.05"/>
+
+  <g font-family="Inter, Segoe UI, Arial, sans-serif">
+    <text x="110" y="110" fill="#FAFAFA" font-size="54" font-weight="760" letter-spacing="-1.5">Vibink mark — round two</text>
+    <text x="112" y="157" fill="#A1A1AA" font-size="23">Three simpler directions built for the Chrome toolbar.</text>
+
+    <g transform="translate(90 225)" filter="url(#shadow)"><use href="#vibeStroke"/></g>
+    <g transform="translate(645 225)" filter="url(#shadow)"><use href="#cursorEcho"/></g>
+    <g transform="translate(1200 225)" filter="url(#shadow)"><use href="#liveCanvas"/></g>
+
+    <g transform="translate(90 780)">
+      <text x="256" y="0" fill="#FAFAFA" font-size="33" font-weight="760" text-anchor="middle">A · Vibe Stroke</text>
+      <text x="256" y="40" fill="#A1A1AA" font-size="20" text-anchor="middle">A live signal drawn as one ink mark.</text>
+      <g transform="translate(210 76) scale(.18)"><use href="#vibeStroke"/></g>
+    </g>
+
+    <g transform="translate(645 780)">
+      <text x="256" y="0" fill="#FAFAFA" font-size="33" font-weight="760" text-anchor="middle">B · Cursor Echo</text>
+      <text x="256" y="40" fill="#A1A1AA" font-size="20" text-anchor="middle">Point at the page and transmit intent.</text>
+      <g transform="translate(210 76) scale(.18)"><use href="#cursorEcho"/></g>
+    </g>
+
+    <g transform="translate(1200 780)">
+      <text x="256" y="0" fill="#FAFAFA" font-size="33" font-weight="760" text-anchor="middle">C · Live Canvas</text>
+      <text x="256" y="40" fill="#A1A1AA" font-size="20" text-anchor="middle">Mark directly on the page you are editing.</text>
+      <g transform="translate(210 76) scale(.18)"><use href="#liveCanvas"/></g>
+    </g>
+
+    <line x1="110" y1="1030" x2="1690" y2="1030" stroke="#FFFFFF" stroke-opacity="0.09"/>
+    <text x="110" y="1075" fill="#71717A" font-size="19" font-weight="650" letter-spacing="1">PURPLE IS THE BRAND. EMERALD APPEARS ONLY WHEN VIBINK IS LIVE.</text>
+  </g>
+</svg>

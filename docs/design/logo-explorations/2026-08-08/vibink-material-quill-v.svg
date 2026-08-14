@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Vibink material quill V logo</title>
+  <desc id="desc">A descending white stroke meets a mirrored feather ink pen to form a V, with a long Material shadow on purple.</desc>
+  <defs>
+    <clipPath id="tileClip">
+      <rect x="32" y="32" width="448" height="448" rx="112"/>
+    </clipPath>
+
+    <g id="symbol">
+      <g transform="translate(138 159) rotate(60.67)">
+        <path d="M0-33A33 33 0 0 0 0 33H190L241 0 190-33Z" fill="#FCFAFF"/>
+      </g>
+
+      <g transform="translate(256 369) rotate(-60.67)">
+        <path
+          d="M0 0 68-13C100-46 142-65 187-60 216-57 239-36 250 0 225 5 205 20 186 39 151 72 108 62 68 13Z"
+          fill="#FCFAFF"
+        />
+        <path d="M22 0H226" fill="none" stroke="#D8CCFF" stroke-width="10" stroke-linecap="round"/>
+        <path d="M111-4 135-38M146 4 174 43M174-4 201-35" fill="none" stroke="#6D28D9" stroke-width="9" stroke-linecap="round"/>
+      </g>
+    </g>
+  </defs>
+
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="#6D28D9"/>
+
+  <g clip-path="url(#tileClip)" fill="#35106B" opacity="0.34">
+    <path d="M116 132 279 352 512 585V480H347L105 238Z"/>
+    <path d="M374 121 412 143 512 243V480H348L256 369Z"/>
+  </g>
+
+  <use href="#symbol"/>
+</svg>

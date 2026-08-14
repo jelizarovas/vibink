@@ -6,46 +6,65 @@
     <title>Vibink</title>
     <link rel="stylesheet" href="popup.css">
   </head>
-  <body>
+  <body data-connection-state="checking">
     <main>
       <header>
-        <img src="vibink-mark.svg" width="38" height="38" alt="">
-        <div>
+        <img src="vibink-mark.svg" width="40" height="40" alt="">
+        <div class="brand">
           <h1>Vibink</h1>
           <p>Vibe it. Ink it. Ship it.</p>
         </div>
-        <span id="status-dot" class="status-dot" aria-label="Disconnected"></span>
+        <div class="status-badge" role="status" aria-live="polite">
+          <span id="status-dot" class="status-dot" aria-hidden="true"></span>
+          <span id="status-label">Checking</span>
+        </div>
       </header>
 
-      <button id="toggle" class="primary" type="button">Open on this page</button>
+      <section id="connection-card" class="connection-card" aria-labelledby="state-title" aria-busy="true">
+        <p id="state-kicker" class="eyebrow">Checking connection</p>
+        <h2 id="state-title">Checking for Codex</h2>
+        <p id="state-description" class="state-description">This should only take a moment.</p>
 
-      <section aria-labelledby="bridge-heading">
-        <div class="section-heading">
-          <h2 id="bridge-heading">Local bridge</h2>
-          <span id="bridge-status">Checking…</span>
+        <button id="toggle" class="primary" type="button" hidden>Open Vibink toolbar</button>
+        <button id="disconnect" class="secondary disconnect" type="button" hidden>Disconnect from this task</button>
+
+        <div id="connection-panel" class="connection-panel" hidden>
+          <label for="bridge-url">Connection address from Codex</label>
+          <div class="field-row">
+            <input id="bridge-url" type="url" value="http://192.168.0.9:59645" aria-describedby="bridge-hint" autocomplete="url" spellcheck="false">
+            <button id="save-url" class="compact" type="button">Check address</button>
+          </div>
+            <p id="bridge-hint" class="hint">BEAST is the default. If Codex shows a new port on this machine, you can enter only the port number.</p>
+
+          <div id="pairing-panel" class="pairing-panel" hidden>
+            <label for="pairing-pin">PIN</label>
+            <div class="field-row">
+              <input id="pairing-pin" type="text" inputmode="numeric" minlength="4" maxlength="4" pattern="[0-9]{4}" value="0000" placeholder="0000" aria-describedby="pin-hint" autocomplete="one-time-code" spellcheck="false">
+              <button id="pair" class="primary compact" type="button">Connect</button>
+            </div>
+            <p id="pin-hint" class="hint">Prefills 0000. Vibink pairs automatically when this address already has access; otherwise tap Connect once.</p>
+          </div>
         </div>
-        <label for="bridge-url">Bridge address</label>
-        <div class="field-row">
-          <input id="bridge-url" type="url" value="http://127.0.0.1:4327" spellcheck="false">
-          <button id="save-url" class="icon-button" type="button" title="Save bridge address" aria-label="Save bridge address">✓</button>
-        </div>
-        <label for="pairing-pin">One-time PIN</label>
-        <div class="field-row">
-          <input id="pairing-pin" type="text" inputmode="text" maxlength="9" placeholder="ABCD-2345" autocomplete="off" spellcheck="false">
-          <button id="pair" type="button">Pair</button>
-        </div>
-        <button id="disconnect" class="secondary" type="button" hidden>Disconnect this session</button>
-        <p id="message" class="message" role="status"></p>
+
+        <button id="retry" class="secondary" type="button" hidden>Check again</button>
+        <button id="forget-offline" class="offline-reset" type="button" hidden>Reset offline connection</button>
+        <p id="message" class="message" role="status" aria-live="polite"></p>
       </section>
 
-      <details>
-        <summary>Extension identity</summary>
-        <p>Use this ID as <code>VIBINK_EXTENSION_ID</code> when starting the private bridge.</p>
+      <section class="device-card" aria-labelledby="device-title">
+        <div class="device-heading">
+          <div>
+            <p class="eyebrow">This browser</p>
+            <h2 id="device-title" class="device-title">Extension ID</h2>
+          </div>
+          <button id="copy-extension-id" class="copy-button" type="button" aria-label="Copy this browser's extension ID">Copy</button>
+        </div>
         <code id="extension-id"></code>
-      </details>
+        <p class="hint">Codex may ask for this once when you add a new computer or Surface Hub.</p>
+      </section>
 
-      <footer>Vibink stays local. Captures happen only when you press Capture.</footer>
+      <footer>Vibink stays local. Screenshots are shared only when you press Capture.</footer>
     </main>
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>

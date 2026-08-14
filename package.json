@@ -1,7 +1,7 @@
 {
   "name": "vibink",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.5",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -9,6 +9,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "node scripts/check.mjs",
+    "setup:mcp": "powershell.exe -NoProfile -File scripts/register-global-mcp.ps1",
     "test": "node --test",
     "verify:package": "node scripts/verify-package.mjs dist",
     "release": "node scripts/release.mjs",

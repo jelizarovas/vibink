@@ -2,12 +2,24 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  ASSISTANT_ANNOTATION_COLORS,
   VIBINK_TOOL_NAMES,
   VIBINK_TOOLS,
+  DEFAULT_BRIDGE_PORT,
   cleanPageUrl,
+  createPairingCode,
   createDisabledBrowserState,
   isPrivateHostname,
+  normalizeExtensionIds,
+  normalizePairingPin,
+  normalizeRemoteAddress,
+  PAIRING_PIN,
   sanitizeAnnotationForBridge,
+  sanitizeAreaSelectionForBridge,
+  sanitizeCompletionAckForBridge,
+  sanitizeCssDraftProposalForBridge,
+  sanitizeProposalResponseForBridge,
+  validateToolArguments,
 } from "../bridge/vibink-bridge.mjs";
 
 const EXPECTED_TOOLS = [
@@ -16,25 +28,154 @@ const EXPECTED_TOOLS = [
   "vibink_wait_for_update",
   "vibink_send_message",
   "vibink_draw",
+  "vibink_publish_proposal",
+  "vibink_complete_task",
+  "vibink_publish_overlay",
   "vibink_clear_feedback",
+  "vibink_list_learnings",
+  "vibink_record_learning",
 ];
 
-test("the MCP surface contains only the trimmed Vibink tools", () => {
-  assert.deepEqual(VIBINK_TOOL_NAMES, EXPECTED_TOOLS);
-  assert.equal(VIBINK_TOOL_NAMES.some((name) => name.includes("brain")), false);
-  assert.equal(VIBINK_TOOL_NAMES.every((name) => name.startsWith("vibink_")), true);
+test("extension and bridge share the same development connection defaults", async () => {
+  const { DEFAULT_BRIDGE_URL, DEFAULT_PAIRING_PIN } = await import("../extension/config.js");
+  assert.equal(DEFAULT_PAIRING_PIN, PAIRING_PIN);
+  assert.equal(PAIRING_PIN, "0000");
+  assert.equal(Number(new URL(DEFAULT_BRIDGE_URL).port), DEFAULT_BRIDGE_PORT);
+  assert.equal(DEFAULT_BRIDGE_PORT, 59645);
 });
 
-test("the bridge source binds HTTP to the configured extension origin", async () => {
+test("the bridge preserves explicit port overrides and private fallback reporting", async () => {
+  const source = await readFile(new URL("../bridge/vibink-bridge.mjs", import.meta.url), "utf8");
+  assert.match(source, /process\.env\.VIBINK_PORT \|\| String\(DEFAULT_BRIDGE_PORT\)/);
+  assert.match(source, /httpServer\.listen\(0, HOST\)/);
+  assert.match(source, /activePort = address\.port/);
+  assert.match(source, /usedFallbackPort: activePort !== PORT/);
+});
+
+test("pairing uses the fixed development PIN", () => {
+  const earliestExpectedExpiry = Date.now() + 5 * 60 * 1000 - 1000;
+  for (let index = 0; index < 20; index += 1) {
+    const pairing = createPairingCode();
+    assert.equal(pairing.code, PAIRING_PIN);
+    assert.equal(pairing.expiresAt >= earliestExpectedExpiry, true);
+  }
+  assert.equal(normalizePairingPin(" 0000 "), "0000");
+  assert.equal(normalizePairingPin(" 0123 "), "0123");
+  for (const invalid of ["123", "12345", "12A4", "ABCD-2345", "", null]) {
+    assert.equal(normalizePairingPin(invalid), null);
+  }
+});
+
+test("the MCP surface contains only the bounded Vibink tools", () => {
+  assert.deepEqual(VIBINK_TOOL_NAMES, EXPECTED_TOOLS);
+  assert.equal(VIBINK_TOOL_NAMES.every((name) => name.startsWith("vibink_")), true);
+  const overlay = VIBINK_TOOLS.find((entry) => entry.name === "vibink_publish_overlay");
+  assert.equal(overlay.inputSchema.properties.file_name.pattern.includes("png"), true);
+  assert.equal(overlay.inputSchema.properties.opacity.minimum, 0.1);
+  assert.equal(overlay.annotations.destructiveHint, true);
+  const completion = VIBINK_TOOLS.find((entry) => entry.name === "vibink_complete_task");
+  assert.equal(completion.inputSchema.properties.completed.const, true);
+  assert.equal(completion.annotations.destructiveHint, true);
+  const proposal = VIBINK_TOOLS.find((entry) => entry.name === "vibink_publish_proposal");
+  assert.deepEqual(proposal.inputSchema.properties.color.enum, ASSISTANT_ANNOTATION_COLORS);
+  assert.equal(proposal.annotations.destructiveHint, false);
+  const record = VIBINK_TOOLS.find((entry) => entry.name === "vibink_record_learning");
+  assert.equal(record.inputSchema.properties.owner_confirmed.const, true);
+  assert.equal(record.inputSchema.properties.learning_id.pattern, "^lrn-[a-f0-9]{32}$");
+  assert.deepEqual(record.inputSchema.properties.category.enum, [
+    "design",
+    "interaction",
+    "project",
+    "workflow",
+  ]);
+});
+
+test("tool handlers enforce their declared argument schemas", () => {
+  assert.throws(
+    () => validateToolArguments("vibink_connection_info", null),
+    /must be an object/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_connection_info", false),
+    /must be an object/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_send_message", { message: "x".repeat(501) }),
+    /no more than 500/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_send_message", { message: "ok", html: "<b>" }),
+    /html.*not supported/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_get_state", { include_capture: "yes" }),
+    /must be a boolean/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_publish_overlay", { file_name: "../image.png" }),
+    /invalid format/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_draw", {
+      annotations: [{ type: "arrow", points: [{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.9 }] }],
+    }),
+    /exactly one allowed shape/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_complete_task", { completed: false }),
+    /required value/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_publish_proposal", {
+      label: "Move here",
+      x: 0.1,
+      y: 0.1,
+      width: 0.2,
+      height: 0.2,
+      color: "#00000000",
+    }),
+    /allowed values/,
+  );
+  assert.throws(
+    () => validateToolArguments("vibink_record_learning", {
+      category: "design",
+      title: "Compact controls",
+      learning: "Prefer compact controls.",
+      owner_confirmed: false,
+    }),
+    /required value/,
+  );
+  assert.deepEqual(
+    validateToolArguments("vibink_send_message", { message: "Use the compact option." }),
+    { message: "Use the compact option." },
+  );
+});
+
+test("the bridge source binds HTTP to the explicit extension-origin allowlist", async () => {
   const source = await readFile(new URL("../bridge/vibink-bridge.mjs", import.meta.url), "utf8");
   assert.match(source, /VIBINK_EXTENSION_ID/);
+  assert.match(source, /VIBINK_EXTENSION_IDS/);
   assert.match(source, /chrome-extension:\/\//);
-  assert.match(source, /origin === ALLOWED_EXTENSION_ORIGIN/);
+  assert.match(source, /ALLOWED_EXTENSION_ORIGINS\.has\(origin\)/);
+  assert.match(source, /configuredExtensionOriginCount/);
+  assert.match(source, /const activePairing = pairingForPresentation\(\)/);
+  assert.match(source, /if \(!pairingPresented \|\| pairing\.expiresAt <= Date\.now\(\)\) rotatePairingCode\(\)/);
+  assert.doesNotMatch(source, /pairing\.expiresAt - Date\.now\(\) < 60_000/);
+  assert.match(source, /recordPairFailure\(remoteAddress\)/);
+  assert.match(source, /pairAttempts\.delete\(remoteAddress\)/);
   assert.doesNotMatch(source, /chrome-extension:\/\/\*/);
-  assert.doesNotMatch(source, /record_learning/);
+  assert.match(source, /vibink_record_learning/);
+  assert.match(source, /createBrainStore/);
+  assert.match(source, /OVERLAY_STAGING_ROOT/);
+  assert.match(source, /assistantFeedbackSummary/);
+  assert.match(source, /Object\.hasOwn\(message\.params, "arguments"\)/);
+  assert.match(source, /overlays: assistantFeedback\.overlays\.map/);
   for (const endpoint of ["/health", "/pair", "/disconnect", "/browser/state", "/feedback"]) {
     assert.equal(source.includes(`\"${endpoint}\"`), true, `missing ${endpoint}`);
   }
+  assert.match(source, /request\.method === "POST" && url\.pathname === "\/health"/);
+  assert.match(source, /request\.method === "POST" && url\.pathname === "\/feedback"/);
+  assert.doesNotMatch(source, /request\.method === "GET" && url\.pathname === "\/(?:health|feedback)"/);
   assert.equal(source.includes('"/events"'), false);
   assert.match(source, /diagnosticsEnabled === true/);
   assert.match(source, /captureConsented === true/);
@@ -55,6 +196,23 @@ test("the bridge source binds HTTP to the configured extension origin", async ()
   assert.match(source, /browserState\.activationEpoch !== next\.activationEpoch/);
 });
 
+test("extension identity configuration is normalized, deduplicated, and fail-closed", () => {
+  const validA = "a".repeat(32);
+  const validB = "p".repeat(32);
+  assert.deepEqual(normalizeExtensionIds([validA.toUpperCase(), ` ${validB} `, validA]), {
+    extensionIds: [validA, validB],
+    invalidCount: 0,
+    tooMany: false,
+  });
+  assert.deepEqual(normalizeExtensionIds([validA, "public.example", "q".repeat(32)]), {
+    extensionIds: [validA],
+    invalidCount: 2,
+    tooMany: false,
+  });
+  const tooMany = Array.from({ length: 9 }, (_, index) => `${"a".repeat(31)}${String.fromCharCode(97 + index)}`);
+  assert.equal(normalizeExtensionIds(tooMany).tooMany, true);
+});
+
 test("private-network checks reject public addresses", () => {
   assert.equal(isPrivateHostname("127.0.0.1"), true);
   assert.equal(isPrivateHostname("192.168.1.20"), true);
@@ -67,6 +225,14 @@ test("private-network checks reject public addresses", () => {
   assert.equal(isPrivateHostname("10.evil.com"), false);
   assert.equal(isPrivateHostname("192.168.evil.com"), false);
   assert.equal(isPrivateHostname("fdexample.com"), false);
+});
+
+test("session address binding treats loopback forms as the same client", () => {
+  assert.equal(normalizeRemoteAddress("127.0.0.1"), "127.0.0.1");
+  assert.equal(normalizeRemoteAddress("::1"), "127.0.0.1");
+  assert.equal(normalizeRemoteAddress("::ffff:127.0.0.1"), "127.0.0.1");
+  assert.equal(normalizeRemoteAddress("::ffff:192.168.0.9"), "192.168.0.9");
+  assert.equal(normalizeRemoteAddress("192.168.0.9"), "192.168.0.9");
 });
 
 test("page URLs omit query, fragment, credentials, and long record identifiers", () => {
@@ -98,7 +264,7 @@ test("annotation sanitization bounds geometry and removes sensitive text", () =>
   assert.equal(annotation.x2, 1);
   assert.equal(annotation.y2, 0);
   assert.equal(annotation.width, 32);
-  assert.equal(annotation.opacity, 0.05);
+  assert.equal(annotation.opacity, 0.18);
   assert.equal(annotation.fontSize, 72);
   assert.equal(annotation.text.includes("jane@example.com"), false);
 });
@@ -128,8 +294,10 @@ test("assistant annotation geometry is type-specific", () => {
     .inputSchema.properties.annotations.items;
   assert.equal(drawSchema.properties.points.minItems, 2);
   assert.equal(Array.isArray(drawSchema.oneOf), true);
-  assert.equal(new RegExp(drawSchema.properties.color.pattern).test("#12345"), false);
-  assert.equal(new RegExp(drawSchema.properties.color.pattern).test("#1234"), true);
+  assert.deepEqual(drawSchema.properties.color.enum, ASSISTANT_ANNOTATION_COLORS);
+  assert.equal(drawSchema.properties.opacity.minimum, 0.18);
+  assert.equal(drawSchema.properties.width.minimum, 2);
+  assert.equal(drawSchema.properties.color.enum.includes("#00000000"), false);
   assert.equal(sanitizeAnnotationForBridge({
     type: "arrow",
     x: 0.1,
@@ -153,9 +321,79 @@ test("disabled browser state hard-clears live page context", () => {
   assert.equal(state.route, "");
   assert.deepEqual(state.annotations, []);
   assert.equal(state.target, null);
+  assert.equal(state.areaSelection, null);
+  assert.equal(state.selectionMode, "none");
+  assert.equal(state.completionAck, null);
+  assert.equal(state.proposalResponse, null);
+  assert.equal(state.cssDraftProposal, null);
   assert.deepEqual(state.diagnostics, []);
   assert.equal(state.capture, null);
   assert.equal(state.activationEpoch, 42);
+});
+
+test("area, completion, proposal, and CSS draft payloads stay bounded", () => {
+  const area = sanitizeAreaSelectionForBridge({
+    rect: { x: -1, y: 0.2, width: 2, height: 0.4 },
+    candidates: Array.from({ length: 20 }, (_, index) => ({
+      tagName: "button",
+      id: `candidate-${index}`,
+      role: "button",
+      ariaLabel: `Option ${index}`,
+      value: "must-not-pass",
+      rect: { x: 0.1, y: 0.2, width: 0.2, height: 0.1 },
+      styles: { color: "red" },
+    })),
+  });
+  assert.equal(area.candidates.length, 12);
+  assert.equal(area.rect.x, 0);
+  assert.equal(area.rect.width, 1);
+  assert.equal(Object.hasOwn(area.candidates[0], "styles"), false);
+  assert.equal(JSON.stringify(area).includes("must-not-pass"), false);
+
+  assert.deepEqual(sanitizeCompletionAckForBridge({
+    requestId: "completion-123",
+    status: "approved",
+    basedOnSequence: 4,
+    resultingSequence: 5,
+  }), {
+    requestId: "completion-123",
+    status: "approved",
+    basedOnSequence: 4,
+    resultingSequence: 5,
+  });
+  assert.equal(sanitizeCompletionAckForBridge({ requestId: "completion-1", status: "applied" }), null);
+
+  const proposalResponse = sanitizeProposalResponseForBridge({
+    proposalId: "proposal-123",
+    responseId: "proposal-response-123",
+    status: "approved",
+    bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+    label: "Move here",
+    color: "#38bdf8",
+  });
+  assert.equal(proposalResponse.status, "approved");
+  assert.equal(sanitizeProposalResponseForBridge({
+    ...proposalResponse,
+    color: "#00000000",
+  }), null);
+
+  const cssDraft = sanitizeCssDraftProposalForBridge({
+    proposalId: "css-proposal-123",
+    target: { tagName: "div", id: "card", rect: { x: 0, y: 0, width: 0.2, height: 0.2 } },
+    properties: {
+      paddingPx: 200,
+      marginPx: -200,
+      borderRadiusPx: 12,
+      borderWidthPx: 3,
+      gapPx: 8,
+      borderColor: "#a78bfa",
+      backgroundImage: "url(https://example.test/secret)",
+    },
+    note: "Draft",
+  });
+  assert.equal(cssDraft.properties.paddingPx, 96);
+  assert.equal(cssDraft.properties.marginPx, -48);
+  assert.equal(Object.hasOwn(cssDraft.properties, "backgroundImage"), false);
 });
 
 test("assistant geometry preserves canonical coordinates for every rendered shape", () => {
@@ -185,8 +423,9 @@ test("extension state transport is page-instance scoped and keeps consent gates"
   assert.match(background, /withActivationLock/);
   assert.match(background, /withSessionLock/);
   assert.match(background, /withSessionStorageLock/);
+  assert.match(background, /withActionLock/);
   assert.match(background, /function takeActivePage/);
-  assert.equal((background.match(/createSerialQueue\(\)/g) || []).length, 3);
+  assert.equal((background.match(/createSerialQueue\(\)/g) || []).length, 4);
   assert.match(background, /if \(!sameCredential\(current, expectedToken\)\) return false/);
   assert.match(background, /nextActivationEpoch/);
   assert.match(background, /clearActivePageIfMatches/);
@@ -208,7 +447,7 @@ test("extension state transport is page-instance scoped and keeps consent gates"
   assert.match(background, /disableActiveOverlay\(true, \{ requireBridgeClear: true \}\)/);
   assert.match(background, /cleared\.ignoredAsStale/);
   assert.match(background, /type: "VIBINK_DISABLE",[\s\S]{0,160}pageInstanceId:[\s\S]{0,100}activationEpoch:/);
-  assert.match(background, /files: \["lifecycle\.js", "content\.js"\]/);
+  assert.match(background, /files: \["compat\.js", "lifecycle\.js", "content\.js"\]/);
   assert.doesNotMatch(background, /startsWith\("10\."\)|startsWith\("192\.168\."\)/);
   assert.match(content, /pageInstanceId: state\.pageInstanceId/);
   assert.match(content, /captureConsented: Boolean\(state\.captureDataUrl\)/);

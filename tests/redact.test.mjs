@@ -13,6 +13,16 @@ test("redactText removes common person data and credentials", () => {
   assert.equal(containsRedaction(result), true);
 });
 
+test("redactText removes street addresses and unlabeled cloud credentials", () => {
+  const result = redactText(
+    "Meet at 123 Main Street, Seattle WA 98101 using AKIAIOSFODNN7EXAMPLE",
+  );
+  assert.equal(result.includes("123 Main Street"), false);
+  assert.equal(result.includes("98101"), false);
+  assert.equal(result.includes("AKIAIOSFODNN7EXAMPLE"), false);
+  assert.equal(containsRedaction(result), true);
+});
+
 test("redactText redacts only Luhn-valid payment card candidates", () => {
   assert.equal(luhnValid("4111 1111 1111 1111"), true);
   assert.equal(luhnValid("4111 1111 1111 1112"), false);
@@ -31,6 +41,12 @@ test("redactText enforces its output bound", () => {
   assert.equal(redactText("abcdefghij", 6), "abcde…");
   assert.equal(redactText("abcdefghij", 1), "…");
   assert.equal(redactText("abcdefghij", 0), "");
+});
+
+test("containsRedaction detects generic and typed redaction markers", () => {
+  assert.equal(containsRedaction("token=[REDACTED]"), true);
+  assert.equal(containsRedaction("email [REDACTED-EMAIL]"), true);
+  assert.equal(containsRedaction("ordinary reusable preference"), false);
 });
 
 test("redactText redacts before truncating across a sensitive value", () => {
