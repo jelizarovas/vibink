@@ -10,7 +10,7 @@ Vibink has two local pieces: the Chrome extension that overlays the selected pag
 - Codex desktop, CLI, or IDE support for local MCP servers.
 - For Surface Hub use, both devices on the same trusted private network.
 
-## Install the development extension
+## Install the development extension on each outlet
 
 1. From the Vibink repository, run `npm run check` when you want the dependency-free static validation.
 2. Run `npm run build`; no third-party package installation is required by the build script.
@@ -20,60 +20,123 @@ Vibink has two local pieces: the Chrome extension that overlays the selected pag
 6. Pin Vibink to the Chrome toolbar so its click remains the visible activation gesture.
 7. Open Vibink's popup and copy the displayed 32-character extension ID.
 
+Build `dist` once on the trusted development PC. For a laptop or Surface Hub, copy the entire resulting `dist` folder—not individual files—to a stable local folder on that device, then choose **Load unpacked** and select that copied folder. Each unpacked installation can receive a different Extension ID, so copy the ID shown by Vibink on every browser you intend to use. A copied folder is not an automatic updater; after a future build, replace the copied folder contents, choose **Reload** for Vibink in `chrome://extensions` on that device, and refresh the ordinary web page where Vibink will run.
+
 Chrome does not allow Vibink to inject into protected pages such as `chrome://` settings or the Chrome Web Store. Test on a normal HTTP or HTTPS page.
 
-## Connect Codex through project-scoped MCP
+## Register Vibink globally in Codex
 
-The repository includes `.codex/config.toml`:
+Vibink belongs to the development workflow, not to one application repository. Register it once in the global Codex MCP configuration so a fresh task opened in LotPro, a sales site, an extension, or another trusted checkout receives the same tools. See the [official OpenAI Codex MCP documentation](https://developers.openai.com/codex/mcp) for current global configuration, restart, and `/mcp` behavior.
 
-```toml
-[mcp_servers.vibink]
-command = "node"
-args = ["bridge/vibink-bridge.mjs", "--allow-lan"]
-cwd = "C:/apps/vibink"
-env_vars = ["VIBINK_EXTENSION_ID", "VIBINK_HOST", "VIBINK_PORT"]
-enabled = true
-default_tools_approval_mode = "writes"
+From `C:\apps\vibink`, preview the registration first:
+
+```powershell
+powershell.exe -NoProfile -File scripts\register-global-mcp.ps1 `
+  -ExtensionId "YOUR_32_CHARACTER_EXTENSION_ID" `
+  -WhatIf
 ```
 
-Project-scoped MCP configuration is loaded for trusted projects. See the [official OpenAI Codex MCP documentation](https://developers.openai.com/codex/mcp) for current configuration, restart, and `/mcp` guidance.
+Then run the same command without `-WhatIf`. The script:
 
-1. Open `C:\apps\vibink` as the active trusted project in Codex. If you cloned Vibink elsewhere, edit `cwd` in `.codex/config.toml` to that checkout's absolute path before restarting Codex.
-2. Set `VIBINK_EXTENSION_ID` in the environment that launches Codex to the exact 32-character ID shown in the Vibink popup. The checked-in `env_vars` allowlist forwards that value plus optional `VIBINK_HOST`/`VIBINK_PORT` overrides to the bridge, which accepts only `chrome-extension://<that-id>` as its browser origin.
-3. Restart Codex after cloning, changing `.codex/config.toml`, or changing the extension-ID environment value; running tasks may not acquire newly registered MCP tools.
-4. Start a fresh task and start Voice using Codex's native Voice control.
-5. Use `/mcp` and confirm the `vibink` server is connected.
-6. Ask Codex to call `vibink_connection_info`. Use the exact endpoint and current one-time pairing code it reports.
+- requires Node.js 22 or newer and resolves absolute Node, Codex, checkout, and bridge paths;
+- stores only the non-secret extension identity in the global MCP entry;
+- defaults to loopback so only Chrome on this computer can reach the bridge;
+- refuses to replace an existing global `vibink` entry unless `-Replace` is explicit; and
+- backs up the existing Codex config before an authorized replacement.
 
-The checked-in configuration opts into `--allow-lan` for the Surface Hub workflow. The bridge otherwise uses `VIBINK_HOST` and `VIBINK_PORT` (default `4327`) for local overrides. For development that never leaves the PC, remove `--allow-lan` locally so the bridge binds to loopback. Never port-forward the bridge or allow it on a Public Windows Firewall profile.
+For alternate unpacked installations on this PC, laptop, or Surface Hub, pass up to eight exact IDs:
+
+```powershell
+powershell.exe -NoProfile -File scripts\register-global-mcp.ps1 `
+  -ExtensionId "PC_EXTENSION_ID","HUB_EXTENSION_ID" `
+  -AllowLan
+```
+
+When adding a laptop or another browser later, rerun the command with the complete retained list and explicit replacement:
+
+```powershell
+powershell.exe -NoProfile -File scripts\register-global-mcp.ps1 `
+  -ExtensionId "PC_EXTENSION_ID","LAPTOP_EXTENSION_ID","HUB_EXTENSION_ID" `
+  -AllowLan `
+  -Replace
+```
+
+Do not pass only the new ID: replacement intentionally rewrites Vibink's allowlist. Keep every outlet that should continue to connect, then restart Codex and start a fresh task so the new bridge receives that list. Confirm `vibink` appears in `/mcp` before pairing.
+
+`-AllowLan` is an explicit security choice. Use it only on the development host that must accept a browser outlet over a trusted private network. Never port-forward the bridge or allow Node on a Public Windows Firewall profile.
+
+After registration, restart Codex, open the target source repository, create a fresh task, and confirm `vibink` appears in `/mcp`. Ask the task to **Connect Vibink**; the MCP instructions make Codex call `vibink_connection_info` and report that task's exact endpoint. The current private development demo uses the prefilled PIN `0000`.
+
+Multiple open Codex tasks each start their own private bridge. The first normally uses the BEAST demo port `59645`; later tasks choose a private fallback port and report it through `vibink_connection_info`. Always use the address reported by the intended task rather than guessing or scanning ports.
 
 ## Use Vibink on the development PC
 
-1. Open the page you want to discuss.
-2. Click the Vibink extension action. This grants temporary access to that active tab and injects the overlay.
-3. Enter the local bridge endpoint and one-time pairing code if the extension is not already paired for the current session.
-4. Turn on Vibink and choose Interact, Select, Pen, Arrow, Rectangle, Ellipse, or Text.
-5. Draw or select the exact target, then describe the change in native Codex Voice.
-6. Let Codex inspect Vibink state. Review and authorize source changes using the normal Codex workflow.
-7. Refresh the page, review the result, and repeat.
+1. Open Codex in the source repository you intend to change and start a fresh task.
+2. Start the development server yourself, or explicitly ask Codex to start it, keep its terminal attached, monitor its output, and report the URL after readiness. The target repository's instructions still control whether Codex may run that server.
+3. Say **Connect Vibink**. Codex reports the exact local bridge endpoint; the private development demo uses PIN `0000`.
+4. Open the page you want to discuss. Codex may open the URL when browser control is available and you authorize it.
+5. Click the Vibink extension action. This is the required temporary `activeTab` access gesture; there is no safe URL flag that silently starts the extension.
+6. On first use or after disconnecting, confirm the bridge endpoint in the connection card. PIN `0000` is prefilled. Vibink connects automatically when the address already has access; otherwise choose **Connect** once.
+7. After pairing, clicking Vibink while the toolbar is idle opens it directly. When the toolbar is already open on the current tab, the icon opens the management card; choose **Hide Vibink toolbar** to stay paired or **Disconnect from this task** to revoke the session.
+8. Use the vertical labelled toolbar. Select taps one component and drag-selects an area; a second tap on the same component or inside the active area deselects without removing ink. Pen, Highlight, Arrow, Shape, Circle, Text, Ruler, Write, and Eraser remain separate tools.
+9. Let Codex inspect Vibink state. Review and authorize source changes using the normal Codex workflow.
+10. Refresh and review. Codex may publish colored assistant marks or one adjustable visual proposal. Proposal approval confirms visual direction only. When Codex asks **Is this good enough?**, choose **Needs tweaks** to keep selection/ink or **Looks good** to clear the current user context while staying paired.
+
+The toolbar X means **Hide toolbar — still connected**. Hiding clears the visible, viewport-bound context but preserves the paired task session. Use the prominent Disconnect action in Vibink's management card when the task should lose access entirely.
 
 Vibink activation is not capture or diagnostics consent. Clicking the capture control is the complete consent gesture for one current visible tab frame; there is no second prompt. Choose it only when needed and only after checking the page for sensitive information. Diagnostics requires its own session opt-in.
+
+## Assistant suggestions
+
+Codex may send a brief question, status, warning, or suggestion through `vibink_send_message`. Messages are limited to 500 characters and are delivered only to the authenticated active browser session.
+
+Codex can use `vibink_draw` for safe-palette pen, highlighter, arrow, circle/shape, ruler, and text callouts. These assistant marks are a separate layer: normal assistant replace/clear operations do not remove user ink. `vibink_publish_proposal` creates one five-minute translucent draft rectangle. The owner can drag, resize, relabel, approve, or reject it; no host DOM or source is changed. Info shows messages, proposal status, and the completion question without permanently covering the page.
+
+Vibink keeps sanitized route, viewport, component/area selection, user ink, and bounded draft metadata warm in the intended task's bridge. Selection updates publish immediately; the heartbeat keeps readiness fresh. Codex still has to call `vibink_get_state` or `vibink_wait_for_update`. This mechanism never captures page pixels.
+
+### Input and draft controls
+
+- Finger input passes through to the page. Pen and mouse operate the selected Vibink tool.
+- On compatible pens, holding the barrel button temporarily enters Select; a tip tap selects one component and a tip drag creates the marquee. Releasing restores the earlier tool. Mouse context menus are not intercepted.
+- A recognized inverted/eraser end temporarily erases only user Vibink annotations. Use the labelled Eraser tool when hardware/browser eraser signals are unavailable.
+- Ruler draws in CSS pixels with 5 px ticks, 10 px major ticks, an arrow endpoint, `rem` from the root font, and `em` from the selected component font when available. It does not claim a physical-DPI measurement.
+- CSS opens a movable, touch-friendly, reversible preview for bounded padding, margin, radius, border, color, and gap values. Reset/Cancel restores properties Vibink still owns; Send proposal shares deltas but grants no code-change authority.
+- Write works only after selecting a non-sensitive text/search field and beginning ink inside it. No local handwriting engine ships in this dependency-free build, so Vibink keeps the ink, explains the limitation, and lets the owner enter/review the transcription locally, choose Append or Replace, and explicitly Apply text. Password, payment, authentication, contact, phone, numeric, and otherwise sensitive-looking inputs are refused; transcription text is never sent to the bridge. Failed or cancelled application keeps the ink.
+
+Toolbar pointer activation avoids focus changes and bubble-phase page events, preserving most application menus. Browser-native selects and applications that dismiss menus from document capture-phase listeners may still close before the isolated toolbar receives the event; Vibink does not bypass browser event security.
+
+For a visual comparison, call `vibink_connection_info`, place the proposed PNG in the exact returned `overlayDirectory`, and ask Codex to publish it with `vibink_publish_overlay`. That private directory sits under `%TEMP%\vibink\overlays` and is unique to the current bridge process. The tool accepts PNG only and enforces all of these limits:
+
+- 1 MiB maximum per PNG;
+- 4096 pixels maximum on either axis;
+- 8 megapixels maximum;
+- four active overlays maximum;
+- 3 MiB maximum across active overlays; and
+- two minutes maximum lifetime.
+
+The overlay source path and base64 bytes are not included in MCP state summaries. A successful publication consumes the staged PNG, and bridge shutdown removes its validated private staging directory. Page-context change, turning Vibink off, or disconnecting clears published overlays. Publication is authenticated session feedback, not proof that the application or source code changed.
+
+## Repo brain
+
+Use `vibink_list_learnings` to review reusable learnings in the installed Vibink repository. Use `vibink_record_learning` only after the owner explicitly confirms the exact non-PII learning to preserve and its category: `design`, `interaction`, `project`, or `workflow`. The tool appends under this repository's matching `brain/` folder, never the separate application repository open in Codex, and does not rewrite earlier entries.
+
+Do not record voice or transcripts, page content, captures, selections, annotations, diagnostics, credentials, personal data, or unverified runtime conclusions. Vibink never writes these automatically. A brain entry informs future work but does not authorize a code edit, command, Git action, deployment, or other change outside the normal Codex workspace boundary.
 
 ## Surface Hub flow
 
 The development PC runs Codex, the source checkout, and the Vibink Bridge. The Surface Hub runs Chrome with Vibink installed.
 
 1. Put the development PC and Surface Hub on the same trusted private network.
-2. Start a fresh native Codex Voice task in the Vibink project and confirm `vibink` in `/mcp`.
-3. Ask Codex for the exact LAN bridge endpoint and current pairing code.
+2. Start a fresh native Codex Voice task in the source project you want to change and confirm `vibink` in `/mcp`.
+3. Ask Codex for the exact LAN bridge endpoint. The current private development demo uses PIN `0000`.
 4. If Windows Firewall prompts for Node, allow only the **Private networks** profile.
 5. On the Surface Hub, open the web application you want to work on.
-6. Click Vibink, enter the reported endpoint and short-lived pairing code, and confirm the connected state.
-7. Mark the page with touch and speak to Codex. Use Interact when operating the page and a drawing/selection tool when directing Codex.
+6. Click Vibink. In the primary connection card, confirm the reported endpoint; PIN `0000` is prefilled. Choose **Connect** if it does not pair automatically.
+7. Use a finger to operate and scroll the page while a pen annotates or selects. Use Interact for mouse-driven page operation; supported barrel/eraser signals temporarily switch pen behavior without changing the chosen tool.
 8. Request screenshots or diagnostics only as one-off, visible actions when the structured selection and annotations are insufficient.
-9. When finished, choose **Disconnect this session**. Vibink sends an authenticated revocation request, the bridge invalidates the token and clears its browser state/capture/feedback, and the extension then clears its session credential and disables the overlay. Turning the overlay off alone is not a Disconnect.
+9. **Looks good** clears task-specific user marks/selection but stays paired. When the task should lose access entirely, click Vibink and choose **Disconnect from this task**. The toolbar X only hides and is not Disconnect.
 
-Use the PC's numeric private IPv4 address, not `localhost`, from the Surface Hub. If the pairing code expires, request a new one instead of retrying an old code.
+Use the PC's numeric private IPv4 address, not `localhost`, from the Surface Hub. The current private development demo keeps PIN `0000`; use the exact port reported by the intended Codex task.
 
 ## Diagnostics consent
 
@@ -104,10 +167,14 @@ For an authorized workflow publication, the package job records the exact tagged
 
 ## Troubleshooting
 
-- **`vibink` is absent from `/mcp`:** reopen the Vibink project, confirm `.codex/config.toml` points to the actual checkout, trust it, restart Codex, and start a fresh task.
+- **`vibink` is absent from `/mcp`:** inspect the global MCP registration, rerun `scripts\register-global-mcp.ps1` only when replacement is intended, restart Codex, and start a fresh task in the target repository.
+- **The old task exited before Disconnect:** if the bridge is truly unreachable, use the popup's explicit **Reset offline connection** action. It clears only the browser credential and local overlay; server revocation cannot be confirmed, so the old task must be stopped or allowed to expire before its session can be considered gone.
+- **Saving a learning says the brain is busy:** wait for the active save to finish. If a crashed process left the lock behind, stop every Vibink bridge first, then remove only `<Vibink repository>\brain\.vibink-write.lock` and retry; never remove an active lock.
 - **The action says the page is unsupported:** switch from a Chrome-protected page, PDF viewer, or store page to a normal HTTP/HTTPS tab.
+- **The icon shows `!`:** click it to open recovery. Confirm the displayed bridge address matches the endpoint from the intended Codex task, then retry or use the explicit offline reset only when that bridge is truly gone.
 - **The Hub cannot reach the bridge:** use the exact numeric private IP and reported port, confirm both devices are on the same private network, and allow Node on the Private firewall profile only.
-- **Pairing fails:** request a fresh one-time code; it may have expired or rotated after another successful pair.
+- **The popup says the Codex task is using an older bridge:** replacing or reloading the extension does not restart an already-open task's bridge process. Start a fresh Codex task, ask it to **Connect Vibink**, and use that task's newly reported address and PIN.
+- **Pairing fails:** confirm the task is fresh enough to include this release, use PIN `0000`, and verify that the popup address exactly matches that task's reported port.
 - **The overlay cannot control the page:** switch back to Interact mode, then reload and click Vibink again if the page navigated.
 - **No diagnostics appear:** diagnostics are off by default; explicitly consent for this session, and remember that only bounded sanitized categories are eligible.
 - **Capture was discarded:** return to the intended visible tab and press Capture again without switching tabs or changing page context during the one-frame capture.

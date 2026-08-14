@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">Vibink V-mark approval board</title>
+  <desc id="desc">A refined Vibink icon with a purple V inset inside a continuous white waveform.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1600" y2="980" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#09070E"/>
+      <stop offset="1" stop-color="#180C2B"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="48" y1="34" x2="458" y2="470" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B9A7FF"/>
+      <stop offset="0.42" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="102" y1="176" x2="438" y2="348" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F1EDFF"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(146 100) rotate(47) scale(392)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.3"/>
+      <stop offset="0.7" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <filter id="smallShadow" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+
+    <g id="mark">
+      <rect x="32" y="24" width="448" height="448" rx="112" fill="url(#tile)"/>
+      <rect x="32" y="24" width="448" height="448" rx="112" fill="url(#glow)"/>
+      <rect x="33" y="25" width="446" height="446" rx="111" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="2"/>
+      <path d="M92 315 166 225 228 337 302 176 371 298 421 247" fill="none" stroke="url(#ink)" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M178 246 228 337 291 199" fill="none" stroke="#5B21B6" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="443" cy="225" r="18" fill="#E3DDFF"/>
+    </g>
+  </defs>
+
+  <rect width="1600" height="980" fill="url(#page)"/>
+  <circle cx="1480" cy="-50" r="410" fill="#7C3AED" opacity="0.08"/>
+  <circle cx="40" cy="1040" r="360" fill="#A78BFA" opacity="0.05"/>
+
+  <g font-family="Inter, Segoe UI, Arial, sans-serif">
+    <text x="100" y="105" fill="#FAFAFA" font-size="52" font-weight="760" letter-spacing="-1.5">Vibink V-mark</text>
+    <text x="102" y="150" fill="#A1A1AA" font-size="23">Your live stroke, now carrying a deliberate V.</text>
+
+    <g transform="translate(95 218)" filter="url(#shadow)">
+      <use href="#mark"/>
+    </g>
+
+    <g transform="translate(700 245)">
+      <text x="0" y="0" fill="#C4B5FD" font-size="18" font-weight="750" letter-spacing="2">THE IDEA</text>
+      <text x="0" y="72" fill="#FAFAFA" font-size="42" font-weight="760" letter-spacing="-0.7">One stroke. One hidden V.</text>
+      <text x="0" y="126" fill="#A1A1AA" font-size="23">The white line reads as live collaboration.</text>
+      <text x="0" y="164" fill="#A1A1AA" font-size="23">The inset reads as Vibink at a second glance.</text>
+
+      <g transform="translate(0 225)">
+        <rect width="660" height="112" rx="26" fill="#FFFFFF" fill-opacity="0.055" stroke="#FFFFFF" stroke-opacity="0.09"/>
+        <circle cx="48" cy="42" r="6" fill="#A78BFA"/>
+        <text x="72" y="49" fill="#F4F4F5" font-size="22" font-weight="680">Purple is carved into the ink</text>
+        <text x="72" y="80" fill="#A1A1AA" font-size="18">No separate letter pasted on top.</text>
+      </g>
+
+      <g transform="translate(0 365)">
+        <text x="0" y="0" fill="#C4B5FD" font-size="18" font-weight="750" letter-spacing="2">TOOLBAR READ</text>
+        <rect x="0" y="28" width="660" height="142" rx="28" fill="#242126" stroke="#FFFFFF" stroke-opacity="0.08"/>
+        <circle cx="44" cy="72" r="7" fill="#EF4444"/>
+        <circle cx="68" cy="72" r="7" fill="#F59E0B"/>
+        <circle cx="92" cy="72" r="7" fill="#22C55E"/>
+        <rect x="132" y="52" width="398" height="42" rx="21" fill="#161419"/>
+        <text x="154" y="79" fill="#71717A" font-size="16">localhost:5173</text>
+        <g transform="translate(568 43) scale(.12)" filter="url(#smallShadow)"><use href="#mark"/></g>
+        <text x="0" y="206" fill="#71717A" font-size="17">Previewed as a compact Chrome action icon.</text>
+      </g>
+    </g>
+
+    <g transform="translate(112 807)">
+      <text x="0" y="0" fill="#71717A" font-size="17" font-weight="700" letter-spacing="1.5">SIZE CHECK</text>
+      <g transform="translate(0 30) scale(.125)" filter="url(#smallShadow)"><use href="#mark"/></g>
+      <text x="78" y="70" fill="#A1A1AA" font-size="18">64</text>
+      <g transform="translate(132 46) scale(.0625)" filter="url(#smallShadow)"><use href="#mark"/></g>
+      <text x="175" y="70" fill="#A1A1AA" font-size="18">32</text>
+      <g transform="translate(225 54) scale(.03125)"><use href="#mark"/></g>
+      <text x="250" y="70" fill="#A1A1AA" font-size="18">16</text>
+      <text x="360" y="70" fill="#EDE9FE" font-size="20" font-weight="680">The V survives; the mark still reads first.</text>
+    </g>
+
+    <line x1="100" y1="930" x2="1500" y2="930" stroke="#FFFFFF" stroke-opacity="0.09"/>
+    <text x="100" y="962" fill="#71717A" font-size="17" font-weight="650" letter-spacing="1">PURPLE IS THE BRAND. EMERALD APPEARS ONLY WHEN VIBINK IS ACTIVELY CONNECTED.</text>
+  </g>
+</svg>

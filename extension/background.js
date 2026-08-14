@@ -1,19 +1,24 @@
+import "./compat.js";
 import "./lifecycle.js";
+import { DEFAULT_BRIDGE_URL } from "./config.js";
 
 const {
   createSerialQueue,
   sameCredential,
   sameOwner,
 } = globalThis.__VIBINK_LIFECYCLE__;
-const DEFAULT_BRIDGE_URL = "http://127.0.0.1:4327";
+const { createAbortTimeout } = globalThis.__VIBINK_COMPAT__;
 const BRIDGE_CONFIG_KEY = "vibink.bridge";
 const BRIDGE_SESSION_KEY = "vibink.session";
 const ACTIVE_PAGE_KEY = "vibink.activePage";
 const ACTIVATION_EPOCH_KEY = "vibink.activationEpoch";
+const ACTION_ERROR_KEY = "vibink.actionError";
+const POPUP_PATH = "popup.html";
 const ALLOWED_PATHS = new Set(["/health", "/pair", "/disconnect", "/feedback", "/browser/state"]);
 const runActivationTransition = createSerialQueue();
 const runSessionTransition = createSerialQueue();
 const runSessionStorageTransition = createSerialQueue();
+const runActionTransition = createSerialQueue();
 let disconnecting = false;
 let tabActivationRevision = 0;
 
@@ -79,11 +84,11 @@ function readStoredBridgeSession() {
   });
 }
 
-async function getBridgeSession() {
+async function getBridgeSession({ syncAction = true } = {}) {
   const session = await readStoredBridgeSession();
   if (!session?.token || !session?.sessionId) return null;
   if (!Number.isFinite(Number(session.expiresAt)) || Number(session.expiresAt) <= Date.now()) {
-    await clearLocalSessionBoundary(session.token);
+    await clearLocalSessionBoundary(session.token, { syncAction });
     return null;
   }
   return session;
@@ -104,9 +109,16 @@ function clearBridgeSession(expectedToken) {
   });
 }
 
-async function clearLocalSessionBoundary(expectedToken) {
-  if (!(await clearBridgeSession(expectedToken))) return false;
-  const active = await takeActivePage();
+async function clearLocalSessionBoundary(expectedToken, { syncAction = true } = {}) {
+  if (!expectedToken) return false;
+  const active = await withSessionStorageLock(async () => {
+    const stored = await chrome.storage.session.get(BRIDGE_SESSION_KEY);
+    const current = stored[BRIDGE_SESSION_KEY];
+    if (!sameCredential(current, expectedToken)) return false;
+    await chrome.storage.session.remove(BRIDGE_SESSION_KEY);
+    return takeActivePage();
+  });
+  if (active === false) return false;
   if (active) {
     void chrome.tabs.sendMessage(active.tabId, {
       type: "VIBINK_DISABLE",
@@ -115,6 +127,7 @@ async function clearLocalSessionBoundary(expectedToken) {
       activationEpoch: active.activationEpoch,
     }).catch(() => undefined);
   }
+  if (syncAction) await syncActionMode({ resetTabIds: [active?.tabId] });
   return true;
 }
 
@@ -135,6 +148,147 @@ async function setActivePage(active) {
     return;
   }
   await chrome.storage.session.set({ [ACTIVE_PAGE_KEY]: active });
+}
+
+function safeActionError(error) {
+  const message = String(error?.message || error || "");
+  if (message.includes("not reachable")) {
+    return "The Vibink bridge is offline. Check the task endpoint, then reconnect.";
+  }
+  if (message.includes("Pair Vibink") || message.includes("session")) {
+    return "Connect Vibink to this Codex task before opening the toolbar.";
+  }
+  if (message.includes("regular HTTP") || message.includes("Cannot access")) {
+    return "Vibink can open only on a regular HTTP or HTTPS webpage.";
+  }
+  return "Vibink could not open on this page. Check the connection and try again.";
+}
+
+async function readActionError() {
+  const stored = await chrome.storage.session.get(ACTION_ERROR_KEY);
+  return stored[ACTION_ERROR_KEY]?.message || "";
+}
+
+function withActionLock(task) {
+  return runActionTransition(task);
+}
+
+function clearActionError() {
+  return withActionLock(clearActionErrorLocked);
+}
+
+async function clearActionErrorLocked() {
+  await chrome.storage.session.remove(ACTION_ERROR_KEY);
+}
+
+async function setActionForOpenTabs({ popup, title, clearBadge = false, extraTabIds = [] }) {
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  const tabIds = new Set([
+    ...tabs.map((tab) => tab.id),
+    ...extraTabIds,
+  ].filter(Number.isInteger));
+  await Promise.all([...tabIds].map(async (tabId) => {
+    await chrome.action.setPopup({ tabId, popup }).catch(() => undefined);
+    await chrome.action.setTitle({ tabId, title }).catch(() => undefined);
+    if (clearBadge) {
+      await chrome.action.setBadgeText({ tabId, text: "" }).catch(() => undefined);
+    }
+  }));
+}
+
+function setUnpairedActionMode(tabId = null) {
+  return withActionLock(() => setUnpairedActionModeLocked(tabId));
+}
+
+async function setUnpairedActionModeLocked(tabId = null) {
+  await chrome.action.setPopup({ popup: POPUP_PATH });
+  await chrome.action.setTitle({ title: "Connect Vibink" });
+  await setActionForOpenTabs({
+    popup: POPUP_PATH,
+    title: "Connect Vibink",
+    clearBadge: true,
+    extraTabIds: [tabId],
+  });
+}
+
+function syncActionMode(options = {}) {
+  return withActionLock(() => syncActionModeLocked(options));
+}
+
+async function syncActionModeLocked({ resetTabIds = [] } = {}) {
+  const [session, actionError] = await Promise.all([
+    getBridgeSession({ syncAction: false }),
+    readActionError(),
+  ]);
+  const active = session ? await getActivePage() : null;
+  if (!session) {
+    await setUnpairedActionModeLocked(active?.tabId || resetTabIds.find(Number.isInteger) || null);
+    return;
+  }
+
+  if (actionError) {
+    await chrome.action.setPopup({ popup: POPUP_PATH });
+    await chrome.action.setTitle({ title: "Vibink needs attention" });
+    await setActionForOpenTabs({
+      popup: POPUP_PATH,
+      title: "Vibink needs attention",
+      clearBadge: true,
+      extraTabIds: resetTabIds,
+    });
+    return;
+  }
+
+  await chrome.action.setPopup({ popup: "" });
+  await chrome.action.setTitle({ title: "Open Vibink toolbar" });
+  await setActionForOpenTabs({
+    popup: "",
+    title: "Open Vibink toolbar",
+    clearBadge: true,
+    extraTabIds: resetTabIds,
+  });
+  if (active) {
+    await chrome.action.setPopup({ tabId: active.tabId, popup: POPUP_PATH }).catch(() => undefined);
+    await chrome.action.setTitle({
+      tabId: active.tabId,
+      title: "Manage Vibink — toolbar is open",
+    }).catch(() => undefined);
+    await chrome.action.setBadgeBackgroundColor({ tabId: active.tabId, color: "#7c3aed" }).catch(() => undefined);
+    await chrome.action.setBadgeText({ tabId: active.tabId, text: "ON" }).catch(() => undefined);
+  }
+}
+
+function showActionRecovery(tab, error) {
+  return withActionLock(() => showActionRecoveryLocked(tab, error));
+}
+
+async function showActionRecoveryLocked(tab, error) {
+  const message = safeActionError(error);
+  await chrome.storage.session.set({
+    [ACTION_ERROR_KEY]: {
+      message,
+      at: Date.now(),
+      tabId: Number.isInteger(tab?.id) ? tab.id : null,
+    },
+  });
+  await chrome.action.setPopup({ popup: POPUP_PATH });
+  await chrome.action.setTitle({ title: "Vibink needs attention" });
+  await setActionForOpenTabs({
+    popup: POPUP_PATH,
+    title: "Vibink needs attention",
+    clearBadge: true,
+    extraTabIds: [tab?.id],
+  });
+  if (Number.isInteger(tab?.id)) {
+    await chrome.action.setPopup({ tabId: tab.id, popup: POPUP_PATH }).catch(() => undefined);
+    await chrome.action.setTitle({ tabId: tab.id, title: "Vibink needs attention" }).catch(() => undefined);
+    await chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: "#7c3aed" }).catch(() => undefined);
+    await chrome.action.setBadgeText({ tabId: tab.id, text: "!" }).catch(() => undefined);
+  }
+  if (typeof chrome.action.openPopup === "function") {
+    await chrome.action.openPopup(
+      Number.isInteger(tab?.windowId) ? { windowId: tab.windowId } : undefined,
+    ).catch(() => undefined);
+  }
 }
 
 async function nextActivationEpoch(currentEpoch = 0) {
@@ -189,46 +343,58 @@ async function bridgeFetch(pathname, options = {}) {
   if (session?.token && path !== "/pair") headers.set("Authorization", `Bearer ${session.token}`);
 
   let response;
+  let timeout;
   try {
+    timeout = createAbortTimeout(options.timeoutMs || 4000);
     response = await fetch(`${baseUrl}${path}`, {
       method: options.method || "GET",
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
-      signal: AbortSignal.timeout(options.timeoutMs || 4000),
+      signal: timeout.signal,
     });
   } catch {
+    timeout?.cleanup();
     throw new Error("The local Vibink bridge is not reachable.");
   }
 
-  if (response.status === 401 && path !== "/pair" && session?.token) {
-    await clearLocalSessionBoundary(session.token);
-  }
-  if (options.responseType === "dataUrl") {
-    if (!response.ok) throw new Error(`Bridge request failed (${response.status}).`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    let binary = "";
-    for (let index = 0; index < bytes.length; index += 0x8000) {
-      binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  try {
+    if (response.status === 401 && path !== "/pair" && session?.token) {
+      await clearLocalSessionBoundary(session.token);
     }
-    return { ok: true, dataUrl: `data:${response.headers.get("content-type") || "application/octet-stream"};base64,${btoa(binary)}` };
-  }
+    if (options.responseType === "dataUrl") {
+      if (!response.ok) throw new Error(`Bridge request failed (${response.status}).`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = "";
+      for (let index = 0; index < bytes.length; index += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+      }
+      return { ok: true, dataUrl: `data:${response.headers.get("content-type") || "application/octet-stream"};base64,${btoa(binary)}` };
+    }
 
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { error: "The bridge returned an unreadable response." };
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: "The bridge returned an unreadable response." };
+      }
     }
+    if (!response.ok) {
+      if ([404, 405].includes(response.status) && ["/health", "/feedback"].includes(path)) {
+        const error = new Error("This Codex task is running an older Vibink bridge. Start a fresh Codex task, then check its address again.");
+        error.status = response.status;
+        throw error;
+      }
+      const error = new Error(data.error || `Bridge request failed (${response.status}).`);
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  } finally {
+    timeout.cleanup();
   }
-  if (!response.ok) {
-    const error = new Error(data.error || `Bridge request failed (${response.status}).`);
-    error.status = response.status;
-    throw error;
-  }
-  return data;
 }
 
 function configureBridge(baseUrl) {
@@ -243,8 +409,9 @@ async function configureBridgeLocked(baseUrl) {
   const current = await getBridgeConfig();
   if (current.baseUrl === normalized) return { ok: true, baseUrl: normalized, unchanged: true };
   disconnecting = true;
+  let previousTabId = null;
   try {
-    await disableActiveOverlay(true);
+    previousTabId = (await disableActiveOverlay(true))?.tabId || null;
     const session = await getBridgeSession();
     if (session) {
       try {
@@ -259,9 +426,11 @@ async function configureBridgeLocked(baseUrl) {
       await clearBridgeSession(session.token);
     }
     await chrome.storage.local.set({ [BRIDGE_CONFIG_KEY]: { baseUrl: normalized } });
+    await clearActionError();
   } finally {
     await takeActivePage();
     disconnecting = false;
+    await syncActionMode({ resetTabIds: [previousTabId] });
   }
   return { ok: true, baseUrl: normalized };
 }
@@ -271,13 +440,18 @@ function pairBridge(pin) {
 }
 
 async function pairBridgeLocked(pin) {
+  const pairingPin = String(pin ?? "").trim();
+  if (!/^[0-9]{4}$/.test(pairingPin)) {
+    throw new Error("Enter the four-digit PIN from Codex.");
+  }
   disconnecting = true;
+  let previousTabId = null;
   try {
-    await disableActiveOverlay(true, { requireBridgeClear: true });
+    previousTabId = (await disableActiveOverlay(true, { requireBridgeClear: true }))?.tabId || null;
     await takeActivePage();
     const result = await bridgeFetch("/pair", {
       method: "POST",
-      body: { pin: String(pin || "").trim().toUpperCase() },
+      body: { pin: pairingPin },
     });
     const expiresInMs = Number(result.expiresInMs);
     if (!Number.isFinite(expiresInMs) || expiresInMs <= 0) {
@@ -289,9 +463,11 @@ async function pairBridgeLocked(pin) {
       pairedAt: Date.now(),
       expiresAt: Date.now() + expiresInMs,
     });
+    await clearActionError();
     return { ok: true, sessionId: result.sessionId };
   } finally {
     disconnecting = false;
+    await syncActionMode({ resetTabIds: [previousTabId] });
   }
 }
 
@@ -302,7 +478,7 @@ async function registerActivePage(sender, pageInstanceId, enabled, activationEpo
     throw new Error("Vibink could not identify this page instance.");
   }
   if (disconnecting && enabled) throw new Error("Vibink is disconnecting. Try again in a moment.");
-  const transition = await withActivationLock(async () => {
+  const transitionActivePage = () => withActivationLock(async () => {
     if (disconnecting && enabled) throw new Error("Vibink is disconnecting. Try again in a moment.");
     const current = await getActivePage();
     if (!enabled) {
@@ -333,6 +509,26 @@ async function registerActivePage(sender, pageInstanceId, enabled, activationEpo
       previous: current,
     };
   });
+  const transition = enabled
+    ? await withSessionStorageLock(async () => {
+      const stored = await chrome.storage.session.get(BRIDGE_SESSION_KEY);
+      const session = stored[BRIDGE_SESSION_KEY];
+      const expiresAt = Number(session?.expiresAt);
+      if (
+        !session?.token
+        || !session?.sessionId
+        || !Number.isFinite(expiresAt)
+        || expiresAt <= Date.now()
+      ) {
+        return { sessionUnavailable: true, expiredToken: session?.token || null };
+      }
+      return transitionActivePage();
+    })
+    : await transitionActivePage();
+  if (transition.sessionUnavailable) {
+    if (transition.expiredToken) await clearLocalSessionBoundary(transition.expiredToken);
+    throw new Error("Pair Vibink with the local bridge first.");
+  }
   if (transition.previous && await getBridgeSession()) {
     try {
       await bridgeFetch("/browser/state", {
@@ -362,6 +558,10 @@ async function registerActivePage(sender, pageInstanceId, enabled, activationEpo
       // A closed or navigating tab has no live overlay to disable.
     }
   }
+  await clearActionError();
+  await syncActionMode({
+    resetTabIds: [tabId, transition.previous?.tabId],
+  });
   return transition.result;
 }
 
@@ -425,6 +625,7 @@ async function disableActiveOverlay(clearPageState = false, { requireBridgeClear
       `The previous Vibink page could not be cleared, so pairing was cancelled: ${bridgeClearError.message}`,
     );
   }
+  await syncActionMode({ resetTabIds: [active.tabId] });
   return active;
 }
 
@@ -432,12 +633,43 @@ function disconnectBridge(expectedOwner = null) {
   return withSessionLock(() => disconnectBridgeLocked(expectedOwner));
 }
 
+function forgetOfflineBridgeSession() {
+  return withSessionLock(() => forgetOfflineBridgeSessionLocked());
+}
+
+async function forgetOfflineBridgeSessionLocked() {
+  disconnecting = true;
+  let previousTabId = null;
+  try {
+    const session = await getBridgeSession();
+    if (!session) return { ok: true, forgotten: false, revocationConfirmed: false };
+
+    try {
+      await bridgeFetch("/health", { method: "POST", body: {}, timeoutMs: 1800 });
+      throw new Error("The Vibink bridge is reachable. Use Disconnect so its session is revoked first.");
+    } catch (error) {
+      if (error.status || error.message !== "The local Vibink bridge is not reachable.") throw error;
+    }
+
+    previousTabId = (await disableActiveOverlay(true))?.tabId || null;
+    const forgotten = await clearBridgeSession(session.token);
+    await takeActivePage();
+    await clearActionError();
+    return { ok: true, forgotten, revocationConfirmed: false };
+  } finally {
+    disconnecting = false;
+    await syncActionMode({ resetTabIds: [previousTabId] });
+  }
+}
+
 async function disconnectBridgeLocked(expectedOwner = null) {
   disconnecting = true;
+  let previousTabId = null;
   try {
     if (expectedOwner) {
       const active = await takeActivePageIfMatches(expectedOwner);
       if (!active) return { ok: true, ignored: true };
+      previousTabId = active.tabId;
       await clearBridgeStateForOwner(active);
       try {
         await chrome.tabs.sendMessage(active.tabId, {
@@ -450,7 +682,7 @@ async function disconnectBridgeLocked(expectedOwner = null) {
         // A removed tab has no live overlay to clear.
       }
     } else {
-      await disableActiveOverlay(true);
+      previousTabId = (await disableActiveOverlay(true))?.tabId || null;
     }
     const session = await getBridgeSession();
     if (session) {
@@ -465,10 +697,12 @@ async function disconnectBridgeLocked(expectedOwner = null) {
       }
       await clearBridgeSession(session.token);
     }
+    await clearActionError();
     return { ok: true };
   } finally {
     if (!expectedOwner) await takeActivePage();
     disconnecting = false;
+    await syncActionMode({ resetTabIds: [previousTabId] });
   }
 }
 
@@ -497,11 +731,7 @@ async function clearActivePageForNavigation(tabId) {
     // The bridge also expires browser state if navigation interrupts this best-effort clear.
   } finally {
     if (await clearActivePageIfMatches(active)) {
-      try {
-        await chrome.action.setBadgeText({ tabId, text: "" });
-      } catch {
-        // A closing tab can disappear before its badge is cleared.
-      }
+      await syncActionMode({ resetTabIds: [tabId] });
     }
   }
 }
@@ -515,15 +745,47 @@ async function activeTab() {
 
 async function toggleTab(tab = null) {
   const target = tab || await activeTab();
+  let response;
   try {
-    const response = await chrome.tabs.sendMessage(target.id, { type: "VIBINK_TOGGLE" });
-    return response || { ok: true };
+    response = await chrome.tabs.sendMessage(target.id, { type: "VIBINK_TOGGLE" });
   } catch {
     await chrome.scripting.executeScript({
       target: { tabId: target.id },
-      files: ["lifecycle.js", "content.js"],
+      files: ["compat.js", "lifecycle.js", "content.js"],
     });
-    return { ok: true, enabled: true };
+    response = await chrome.tabs.sendMessage(target.id, { type: "VIBINK_TOGGLE" });
+  }
+  if (!response?.ok) throw new Error(response?.error || "Vibink could not activate this page.");
+  return response;
+}
+
+async function toggleFromUserGesture(tab = null) {
+  const target = tab || await activeTab();
+  if (!Number.isInteger(target?.id)) throw new Error("No active webpage is available.");
+  if (!/^https?:/i.test(target.url || "")) {
+    throw new Error("Vibink works on regular HTTP and HTTPS webpages.");
+  }
+  return withSessionLock(async () => {
+    const active = await getActivePage();
+    const isActiveOwner = active?.tabId === target.id;
+    if (!isActiveOwner) {
+      if (!(await getBridgeSession())) {
+        throw new Error("Pair Vibink with the local bridge first.");
+      }
+      await bridgeFetch("/feedback", { method: "POST", body: {}, timeoutMs: 1800 });
+    }
+    const result = await toggleTab(target);
+    await clearActionError();
+    await syncActionMode({ resetTabIds: [target.id] });
+    return result;
+  });
+}
+
+async function handleActionGesture(tab = null) {
+  try {
+    await toggleFromUserGesture(tab);
+  } catch (error) {
+    await showActionRecovery(tab, error);
   }
 }
 
@@ -557,14 +819,19 @@ function respondAsync(sendResponse, task) {
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.storage.local.get(BRIDGE_CONFIG_KEY).then((stored) => {
     if (!stored[BRIDGE_CONFIG_KEY]) {
-      return chrome.storage.local.set({ [BRIDGE_CONFIG_KEY]: { baseUrl: DEFAULT_BRIDGE_URL } });
+      return chrome.storage.local.set({ [BRIDGE_CONFIG_KEY]: { baseUrl: DEFAULT_BRIDGE_URL } })
+        .then(() => setUnpairedActionMode());
     }
-    return undefined;
+    return syncActionMode();
   });
 });
 
-chrome.commands.onCommand.addListener((command) => {
-  if (command === "toggle-vibink") void toggleTab();
+chrome.action.onClicked.addListener((tab) => {
+  void handleActionGesture(tab);
+});
+
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command === "toggle-vibink") void handleActionGesture(tab || null);
 });
 
 chrome.tabs.onActivated.addListener(() => {
@@ -588,18 +855,29 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message?.type) {
     case "VIBINK_GET_STATUS":
-      return respondAsync(sendResponse, Promise.all([getBridgeConfig(), getBridgeSession()])
-        .then(async ([config, session]) => {
+      return respondAsync(sendResponse, Promise.all([
+        getBridgeConfig(),
+        getBridgeSession(),
+        getActivePage(),
+        readActionError(),
+        activeTab().catch(() => null),
+      ])
+        .then(async ([config, session, active, actionError, currentTab]) => {
           let health = null;
+          let healthError = null;
           let authenticated = false;
           try {
-            health = await bridgeFetch("/health", { timeoutMs: 1800 });
-          } catch {
+            health = await bridgeFetch("/health", { method: "POST", body: {}, timeoutMs: 1800 });
+          } catch (error) {
             health = null;
+            healthError = String(error?.message || "The connection check failed.")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 200);
           }
           if (session) {
             try {
-              authenticated = Boolean((await bridgeFetch("/feedback", { timeoutMs: 1800 })).ok);
+              authenticated = Boolean((await bridgeFetch("/feedback", { method: "POST", body: {}, timeoutMs: 1800 })).ok);
             } catch {
               authenticated = false;
             }
@@ -609,8 +887,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             ok: true,
             config,
             paired: Boolean(liveSession),
+            hasStoredSession: Boolean(await getBridgeSession()),
             sessionId: liveSession?.sessionId || null,
+            active: Boolean(liveSession && active && active.tabId === currentTab?.id),
+            anyActive: Boolean(liveSession && active),
+            actionError,
             health,
+            healthError,
           };
         }));
     case "VIBINK_CONFIGURE_BRIDGE":
@@ -619,10 +902,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return respondAsync(sendResponse, pairBridge(message.pin));
     case "VIBINK_DISCONNECT":
       return respondAsync(sendResponse, disconnectBridge());
+    case "VIBINK_FORGET_OFFLINE_SESSION":
+      return respondAsync(sendResponse, forgetOfflineBridgeSession());
     case "VIBINK_BRIDGE_REQUEST":
       return respondAsync(sendResponse, bridgeRequest(message, sender));
     case "VIBINK_TOGGLE_ACTIVE":
-      return respondAsync(sendResponse, toggleTab());
+      return respondAsync(sendResponse, toggleFromUserGesture());
     case "VIBINK_CAPTURE":
       return respondAsync(sendResponse, captureTab(sender, message.pageInstanceId, message.activationEpoch));
     case "VIBINK_STATE_CHANGED":
@@ -631,15 +916,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         message.pageInstanceId,
         message.enabled,
         message.activationEpoch,
-      )
-        .then(async (result) => {
-          if (sender.tab?.id) {
-            await chrome.action.setBadgeBackgroundColor({ tabId: sender.tab.id, color: "#7c3aed" });
-            await chrome.action.setBadgeText({ tabId: sender.tab.id, text: message.enabled ? "ON" : "" });
-          }
-          return result;
-        }));
+      ));
     default:
       return false;
   }
 });
+
+void syncActionMode();

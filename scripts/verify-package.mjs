@@ -15,6 +15,47 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+const expectedIconPaths = {
+  16: "vibink-icon-16.png",
+  32: "vibink-icon-32.png",
+  48: "vibink-icon-48.png",
+  128: "vibink-icon-128.png",
+};
+const expectedPermissions = Object.freeze(["activeTab", "scripting", "storage"]);
+const expectedHostPermissions = Object.freeze([
+  "http://127.0.0.1/*",
+  "http://localhost/*",
+  "http://192.168.0.9/*",
+]);
+const expectedOptionalHostPermissions = Object.freeze(["http://*/*"]);
+const expectedWebAccessibleResources = Object.freeze([{
+  resources: ["vibink-mark.svg"],
+  matches: ["http://*/*", "https://*/*"],
+  use_dynamic_url: true,
+}]);
+
+function assertIconPaths(actual, label) {
+  assert(actual && typeof actual === "object" && !Array.isArray(actual), `${label} must be an icon map.`);
+  assert(
+    Object.keys(actual).length === Object.keys(expectedIconPaths).length,
+    `${label} must declare only the approved Vibink icon sizes.`,
+  );
+  for (const [size, fileName] of Object.entries(expectedIconPaths)) {
+    assert(actual[size] === fileName, `${label}.${size} must be ${fileName}.`);
+  }
+}
+
+function assertExactStringSet(actual, expected, label) {
+  assert(Array.isArray(actual), `${label} must be an array.`);
+  assert(actual.every((value) => typeof value === "string"), `${label} must contain only strings.`);
+  const actualSet = new Set(actual);
+  assert(actualSet.size === actual.length, `${label} must not contain duplicates.`);
+  assert(actual.length === expected.length, `${label} must contain only the approved values.`);
+  for (const value of expected) {
+    assert(actualSet.has(value), `${label} is missing approved value ${value}.`);
+  }
+}
+
 function toPosix(filePath) {
   return filePath.split(sep).join("/");
 }
@@ -103,25 +144,61 @@ async function verifyExtensionDirectory(packageDirectory, requestedDirectory) {
   assert(typeof manifest.name === "string" && manifest.name.trim(), "Packaged extension requires a name.");
   assert(manifest.version === packageJson.version, "Packaged manifest version must match package.json.");
   assert(manifest.background?.service_worker, "Packaged extension requires a background service worker.");
+  assertIconPaths(manifest.icons, "Packaged manifest.icons");
+  assertIconPaths(manifest.action?.default_icon, "Packaged manifest.action.default_icon");
   assert(
     !Array.isArray(manifest.content_scripts) || manifest.content_scripts.length === 0,
     "Vibink must use intentional click-to-inject access, not persistent content scripts.",
   );
-  for (const permission of ["activeTab", "scripting"]) {
-    assert(manifest.permissions?.includes(permission), `Packaged extension requires the ${permission} permission.`);
-  }
-  for (const hostPermission of manifest.host_permissions ?? []) {
-    assert(
-      hostPermission !== "<all_urls>" && hostPermission !== "http://*/*" && hostPermission !== "https://*/*",
-      `Persistent broad host permission is not allowed: ${hostPermission}`,
-    );
-  }
+  assertExactStringSet(manifest.permissions, expectedPermissions, "manifest.permissions");
+  assertExactStringSet(
+    manifest.host_permissions,
+    expectedHostPermissions,
+    "manifest.host_permissions",
+  );
+  assertExactStringSet(
+    manifest.optional_host_permissions,
+    expectedOptionalHostPermissions,
+    "manifest.optional_host_permissions",
+  );
+  assert(
+    JSON.stringify(manifest.web_accessible_resources) === JSON.stringify(expectedWebAccessibleResources),
+    "manifest.web_accessible_resources must expose only the canonical toolbar mark to HTTP(S) pages.",
+  );
 
   const files = await walk(packageDirectory);
   const relativeFiles = files.map((filePath) => toPosix(relative(packageDirectory, filePath)));
   const relativeFileSet = new Set(relativeFiles);
   assert(relativeFiles.length > 1, "Extension package is unexpectedly empty.");
+  assert(relativeFileSet.has("compat.js"), "Click-to-inject compatibility helpers are missing from the package.");
   assert(relativeFileSet.has("content.js"), "Click-to-inject content.js is missing from the package.");
+  const [backgroundSource, contentSource] = await Promise.all([
+    readFile(join(packageDirectory, "background.js"), "utf8"),
+    readFile(join(packageDirectory, "content.js"), "utf8"),
+  ]);
+  assert(
+    backgroundSource.includes('files: ["compat.js", "lifecycle.js", "content.js"]'),
+    "Packaged background.js must inject compatibility helpers before content.js.",
+  );
+  assert(
+    !contentSource.includes("crypto.randomUUID")
+      && !contentSource.includes("structuredClone(")
+      && !contentSource.includes("AbortSignal.timeout"),
+    "Packaged content.js contains an unsupported direct browser API call.",
+  );
+  for (const assetPath of ["vibink-mark.svg", ...Object.values(expectedIconPaths)]) {
+    assert(relativeFileSet.has(assetPath), `Required Vibink logo asset is missing: ${assetPath}`);
+  }
+
+  const popupSource = await readFile(join(packageDirectory, "popup.html"), "utf8");
+  assert(
+    popupSource.includes('src="vibink-mark.svg"'),
+    "Packaged popup.html must use the canonical vibink-mark.svg asset.",
+  );
+  assert(
+    contentSource.includes('chrome.runtime.getURL("vibink-mark.svg")'),
+    "Packaged toolbar must use the canonical vibink-mark.svg asset.",
+  );
 
   for (const resource of collectManifestResources(manifest)) {
     const normalized = normalizeResource(resource);

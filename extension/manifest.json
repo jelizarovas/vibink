@@ -1,8 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Vibink",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "description": "Vibe it. Ink it. Ship it. Draw and point on any webpage while coding with Codex.",
+  "icons": {
+    "16": "vibink-icon-16.png",
+    "32": "vibink-icon-32.png",
+    "48": "vibink-icon-48.png",
+    "128": "vibink-icon-128.png"
+  },
   "permissions": [
     "activeTab",
     "scripting",
@@ -10,16 +16,35 @@
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "http://192.168.0.9/*"
   ],
   "optional_host_permissions": [
     "http://*/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "vibink-mark.svg"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "use_dynamic_url": true
+    }
   ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
+    "default_icon": {
+      "16": "vibink-icon-16.png",
+      "32": "vibink-icon-32.png",
+      "48": "vibink-icon-48.png",
+      "128": "vibink-icon-128.png"
+    },
     "default_title": "Open Vibink",
     "default_popup": "popup.html"
   },

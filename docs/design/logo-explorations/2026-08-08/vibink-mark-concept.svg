@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Vibink mark concept</title>
+  <desc id="desc">A luminous ink-nib V on a rounded violet tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="76" y1="54" x2="444" y2="470" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A78BFA"/>
+      <stop offset="0.48" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="152" y1="118" x2="350" y2="442" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EDE9FE"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(160 116) rotate(48) scale(360)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.30"/>
+      <stop offset="0.62" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#24084F" flood-opacity="0.42"/>
+    </filter>
+  </defs>
+
+  <rect x="28" y="28" width="456" height="456" rx="118" fill="#120B21" opacity="0.24"/>
+  <rect x="32" y="24" width="448" height="448" rx="112" fill="url(#tile)" filter="url(#shadow)"/>
+  <rect x="32" y="24" width="448" height="448" rx="112" fill="url(#glow)"/>
+  <rect x="33" y="25" width="446" height="446" rx="111" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="2"/>
+
+  <path
+    d="M124 123c-24 0-40 25-30 47l124 275c7 16 21 25 38 25s31-9 38-25l124-275c10-22-6-47-30-47h-37L256 340 161 123h-37Z"
+    fill="url(#ink)"
+  />
+
+  <circle cx="256" cy="395" r="13" fill="#6D28D9"/>
+  <path d="M256 408v31" stroke="#6D28D9" stroke-width="12" stroke-linecap="round"/>
+
+  <path
+    d="M406 92c15 19 23 33 23 44a23 23 0 1 1-46 0c0-11 8-25 23-44Z"
+    fill="#DDD6FE"
+  />
+</svg>

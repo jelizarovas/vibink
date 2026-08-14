@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Vibink purple identity approval board</title>
+  <desc id="desc">The proposed Vibink icon, wordmark, tagline, palette, and small-size previews.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1600" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#09070E"/>
+      <stop offset="1" stop-color="#130B22"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="80" y1="50" x2="450" y2="470" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A78BFA"/>
+      <stop offset="0.48" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="155" y1="118" x2="355" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EDE9FE"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(170 115) rotate(48) scale(370)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.30"/>
+      <stop offset="0.62" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <g id="mark">
+      <rect x="32" y="24" width="448" height="448" rx="112" fill="url(#tile)"/>
+      <rect x="32" y="24" width="448" height="448" rx="112" fill="url(#glow)"/>
+      <rect x="33" y="25" width="446" height="446" rx="111" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="2"/>
+      <path d="M124 123c-24 0-40 25-30 47l124 275c7 16 21 25 38 25s31-9 38-25l124-275c10-22-6-47-30-47h-37L256 340 161 123h-37Z" fill="url(#ink)"/>
+      <circle cx="256" cy="395" r="13" fill="#6D28D9"/>
+      <path d="M256 408v31" stroke="#6D28D9" stroke-width="12" stroke-linecap="round"/>
+      <path d="M406 92c15 19 23 33 23 44a23 23 0 1 1-46 0c0-11 8-25 23-44Z" fill="#DDD6FE"/>
+    </g>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#page)"/>
+  <circle cx="1370" cy="-30" r="430" fill="#7C3AED" opacity="0.08"/>
+  <circle cx="130" cy="1010" r="390" fill="#A78BFA" opacity="0.05"/>
+
+  <g transform="translate(110 160)" filter="url(#shadow)">
+    <use href="#mark"/>
+  </g>
+
+  <g transform="translate(700 215)" fill="#FAFAFA" font-family="Inter, Segoe UI, Arial, sans-serif">
+    <text x="0" y="132" font-size="132" font-weight="760" letter-spacing="-5">Vibink</text>
+    <text x="6" y="202" fill="#C4B5FD" font-size="34" font-weight="620" letter-spacing="1.4">VIBE IT. INK IT. SHIP IT.</text>
+    <text x="6" y="292" fill="#A1A1AA" font-size="25">Visual intent for live development.</text>
+
+    <g transform="translate(6 366)">
+      <rect width="92" height="92" rx="24" fill="#7C3AED"/>
+      <rect x="112" width="92" height="92" rx="24" fill="#A78BFA"/>
+      <rect x="224" width="92" height="92" rx="24" fill="#4C1D95"/>
+      <rect x="336" width="92" height="92" rx="24" fill="#111113" stroke="#2D2638"/>
+      <text x="0" y="126" fill="#A1A1AA" font-size="18">Violet</text>
+      <text x="112" y="126" fill="#A1A1AA" font-size="18">Glow</text>
+      <text x="224" y="126" fill="#A1A1AA" font-size="18">Depth</text>
+      <text x="336" y="126" fill="#A1A1AA" font-size="18">Graphite</text>
+    </g>
+  </g>
+
+  <line x1="110" y1="760" x2="1490" y2="760" stroke="#FFFFFF" stroke-opacity="0.10"/>
+  <text x="112" y="823" fill="#71717A" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="21" font-weight="650" letter-spacing="1.2">CHROME SIZES</text>
+
+  <g transform="translate(340 812)">
+    <g transform="scale(.25)"><use href="#mark"/></g>
+    <g transform="translate(220 32) scale(.125)"><use href="#mark"/></g>
+    <g transform="translate(350 48) scale(.09375)"><use href="#mark"/></g>
+    <g transform="translate(460 56) scale(.0625)"><use href="#mark"/></g>
+  </g>
+
+  <g fill="#71717A" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" text-anchor="middle">
+    <text x="404" y="976">128</text>
+    <text x="592" y="976">64</text>
+    <text x="714" y="976">48</text>
+    <text x="816" y="976">32</text>
+  </g>
+
+  <g transform="translate(1045 817)">
+    <circle cx="20" cy="20" r="8" fill="#34D399"/>
+    <text x="44" y="27" fill="#A1A1AA" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20">Emerald is reserved for live connection state.</text>
+  </g>
+</svg>

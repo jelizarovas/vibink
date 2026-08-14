@@ -16,6 +16,8 @@ serviceAccountKey.json
 # Logs and local tooling
 *.log
 coverage/
+brain/.vibink-write.lock
+/.archive/
 .DS_Store
 Thumbs.db
 .idea/
