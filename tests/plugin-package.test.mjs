@@ -40,14 +40,23 @@ test("the public Codex plugin contains a complete Vibink skill", async () => {
   assert.match(agent, /default_prompt: "Use \$vibink /);
 });
 
-test("the release page points to the matching public release and local plugin setup", async () => {
-  const [packageJson, page] = await Promise.all([
+test("the release page points to the matching public release and keeps Vibink branding", async () => {
+  const [packageJson, page, styles, pageMark, extensionMark] = await Promise.all([
     readFile(new URL("package.json", root), "utf8").then(JSON.parse),
     readFile(new URL("docs/index.html", root), "utf8"),
+    readFile(new URL("docs/site.css", root), "utf8"),
+    readFile(new URL("docs/vibink-mark.svg", root), "utf8"),
+    readFile(new URL("extension/vibink-mark.svg", root), "utf8"),
   ]);
   const escapedVersion = packageJson.version.replaceAll(".", "\\.");
   assert.match(page, new RegExp(`releases/download/v${escapedVersion}/vibink-${escapedVersion}\\.zip`));
   assert.match(page, /\$skill-installer Install the skill from/);
   assert.match(page, /github\.com\/jelizarovas\/vibink\/tree\/main\/plugins\/vibink\/skills\/vibink/);
+  assert.match(page, /rel="icon" href="vibink-mark\.svg" type="image\/svg\+xml"/);
+  assert.match(page, /<img class="mark" src="vibink-mark\.svg" alt="">/);
+  assert.equal(pageMark, extensionMark);
+  assert.match(styles, /--accent: #a77cff/);
+  assert.match(styles, /--accent-strong: #8a55ff/);
+  assert.match(styles, /rgba\(133, 78, 235, 0\.25\)/);
   assert.doesNotMatch(page, /0000|192\.168\.0\.9|arnashonda|arnasj\.chatgpt\.site/i);
 });
