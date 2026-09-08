@@ -56,11 +56,12 @@ test("Select distinguishes tap from marquee and warms component or area context 
 
   assert.match(content, /const SELECT_DRAG_THRESHOLD_PX = 8/);
   assert.match(content, /state\.draft\.dragging = state\.draft\.dragging \|\| Math\.hypot/);
-  assert.match(content, /const dragged = draft\?\.dragging \|\| \(draft && Math\.hypot/);
+  assert.match(content, /draft\?\.type === "selection"/);
+  assert.match(content, /const dragged = draft\.dragging \|\| Math\.hypot/);
   assert.match(content, /if \(dragged\) chooseArea\(draft\.start, normalizedPoint\(event\)\)/);
   assert.match(content, /else chooseTarget\(event\.clientX, event\.clientY\)/);
   assert.match(content, /function likelyTargetsInArea\(rect\)/);
-  assert.match(content, /document\.elementsFromPoint\(x, y\)\.slice\(0, 8\)/);
+  assert.match(content, /deepestElementFromPoint\(x, y\)/);
   assert.match(content, /\.slice\(0, MAX_AREA_TARGETS\)/);
   assert.doesNotMatch(content.slice(content.indexOf("function describeAreaCandidate"), content.indexOf("function isEligibleHandwritingElement")), /\.value/);
   assert.match(content, /selectionMode: state\.areaSelection \? "area" : state\.selectedTarget \? "component" : "none"/);
@@ -74,8 +75,19 @@ test("finger input passes through while pen and mouse ink use the capture-phase 
   const pointerEnd = content.indexOf('textEditor.addEventListener("keydown"', pointerStart);
   const pointerSource = content.slice(pointerStart, pointerEnd);
 
+  assert.match(content, /canvas\.style\.pointerEvents = captureInk \? "auto" : "none"/);
   assert.match(content, /canvas\.style\.pointerEvents = "none"/);
-  assert.match(pointerSource, /if \(event\.pointerType === "touch"\) return;[\s\S]*event\.preventDefault\(\)/);
+  assert.match(content, /function eventFromOverlayChrome/);
+  assert.match(content, /shadow\.elementFromPoint\(event\.clientX, event\.clientY\) !== canvas/);
+  assert.match(content, /if \(drawingPointerId !== null\) \{\s*pendingViewportInvalidation = true;/);
+  assert.match(content, /if \(drawingPointerId !== null\) return;\s*if \(!reducedMotionQuery\?\.matches\) selectionDashOffset/);
+  assert.match(pointerSource, /else if \(draft && draft\.type !== "selection"\) \{\s*commit\(draft\)/);
+  assert.match(content, /penCursor\.dataset\.open = "false"/);
+  assert.match(content, /penCursor\.dataset\.open = "true"/);
+  assert.doesNotMatch(content, /state\.tool !== "hand" && penTipIsDown\(event\)/);
+  assert.match(content, /overlayIntegrityFailures < 2/);
+  assert.match(content, /if \(!state\.enabled \|\| overlayCheckQueued \|\| overlayShutdownPending \|\| drawingPointerId !== null\) return/);
+  assert.match(pointerSource, /event\.pointerType === "touch"[\s\S]*suppressTouchDuringPenStroke/);
   assert.match(pointerSource, /window\.addEventListener\("pointerdown"[\s\S]*, true\)/);
   assert.match(pointerSource, /window\.addEventListener\("pointermove"/);
   assert.match(pointerSource, /event\.getCoalescedEvents\?\.\(\) \|\| \[event\]/);
@@ -84,7 +96,14 @@ test("finger input passes through while pen and mouse ink use the capture-phase 
   assert.match(content, /restoreTemporaryPenTool\(event\.pointerId\)/);
   assert.match(content, /TOUCH · PAGE/);
   assert.match(content, /PEN · SELECT/);
+  assert.match(content, /PEN · \$\{/);
   assert.match(content, /\.vb-pen-cursor/);
+  assert.match(content, /penTipDown/);
+  assert.match(content, /lostpointercapture/);
+  assert.match(content, /handleCapturedScroll/);
+  assert.match(content, /function resolvePointerTool/);
+  assert.match(content, /PEN_MOUSE_COMPATIBILITY_WINDOW_MS = 900/);
+  assert.match(content, /let stylusTool = "pen"/);
 });
 
 test("the CSS editor applies only reversible whitelisted numeric preview properties", async () => {
@@ -101,6 +120,11 @@ test("the CSS editor applies only reversible whitelisted numeric preview propert
   assert.match(cssSource, /element\.style\.setProperty\("padding", `\$\{values\.paddingPx\}px`\)/);
   assert.match(cssSource, /state\.cssDraftProposal = \{/);
   assert.match(cssSource, /Owner-submitted visual CSS draft\. It does not authorize a source edit/);
+  assert.doesNotMatch(content, /inspect-hover|hoverTarget|highlightElement/);
+  assert.match(cssSource, /function serializeCssDraft/);
+  assert.match(cssSource, /status: submitted \? "submitted" : "previewing"/);
+  assert.match(cssSource, /scheduleCssDraftPublish\(\)/);
+  assert.match(cssSource, /CSS_DRAFT_PUBLISH_MS/);
   assert.match(content, /data-css-action='reset'/);
   assert.match(content, /data-css-action='cancel'/);
   assert.match(content, /data-css-action='submit'/);
@@ -112,6 +136,9 @@ test("warm context is cached by event updates and a bounded four-second heartbea
     readFile(new URL("../bridge/vibink-bridge.mjs", import.meta.url), "utf8"),
   ]);
 
+  assert.match(content, /parentPath: describeParentPath\(element\)/);
+  assert.match(content, /classHints: boundedHints/);
+  assert.match(content, /\["padding", 60\]/);
   assert.match(content, /if \(!state\.enabled\) return;\s*void publishState\(\);\s*\}, 4000\)/);
   assert.match(content, /function refreshSelectedTarget\(\)[\s\S]*state\.sequence \+= 1/);
   assert.match(bridge, /sequence === browserState\.sequence[\s\S]*receivedAt/);
@@ -119,6 +146,15 @@ test("warm context is cached by event updates and a bounded four-second heartbea
   assert.match(bridge, /ready: Boolean\(browserState\.enabled/);
   assert.match(bridge, /browserStateAgeMs: ageMs/);
   assert.match(bridge, /warmContext: warmContextReadiness\(\)/);
+  assert.match(content, /editFocus: buildEditFocus\(\)/);
+  assert.match(content, /cssDraft: serializeCssDraft\(\)/);
+  assert.match(content, /function classHint\(/);
+  assert.match(bridge, /editFocusKind: browserState\.editFocus\?\.kind \|\| "none"/);
+  assert.match(bridge, /search the open workspace for classHints/);
+  assert.match(bridge, /Use this only while drawing is true or the owner is still selecting/);
+  assert.match(content, /const drawing = Boolean\(drawingPointerId !== null \|\| stylusDrawing\)/);
+  assert.match(content, /drawing !== lastPublishedDrawing/);
+  assert.match(content, /stylusTool: stylusEnabled && STYLUS_TOOLS\.has\(stylusTool\) \? stylusTool : "none"/);
   assert.match(content, /captureConsented: Boolean\(state\.captureDataUrl\)/);
   assert.match(content, /captureDataUrl: state\.captureDataUrl/);
   assert.doesNotMatch(content.slice(0, content.indexOf("data-action='capture'")), /captureVisibleTab/);

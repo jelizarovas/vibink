@@ -177,7 +177,7 @@ async function verifyExtensionDirectory(packageDirectory, requestedDirectory) {
     readFile(join(packageDirectory, "content.js"), "utf8"),
   ]);
   assert(
-    backgroundSource.includes('files: ["compat.js", "lifecycle.js", "content.js"]'),
+    backgroundSource.includes('files: ["compat.js", "lifecycle.js", "selection.js", "performance.js", "review.js", "content.js"]'),
     "Packaged background.js must inject compatibility helpers before content.js.",
   );
   assert(

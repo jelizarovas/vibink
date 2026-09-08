@@ -17,12 +17,17 @@ import {
   sanitizeAnnotationForBridge,
   sanitizeAreaSelectionForBridge,
   sanitizeCompletionAckForBridge,
+  sanitizeCssDraftForBridge,
   sanitizeCssDraftProposalForBridge,
+  sanitizeEditFocusForBridge,
   sanitizeProposalResponseForBridge,
+  sanitizeTarget,
   validateToolArguments,
 } from "../bridge/vibink-bridge.mjs";
 
 const EXPECTED_TOOLS = [
+  "vibink_begin_request",
+  "vibink_update_request",
   "vibink_connection_info",
   "vibink_get_state",
   "vibink_wait_for_update",
@@ -326,6 +331,8 @@ test("disabled browser state hard-clears live page context", () => {
   assert.equal(state.completionAck, null);
   assert.equal(state.proposalResponse, null);
   assert.equal(state.cssDraftProposal, null);
+  assert.equal(state.cssDraft, null);
+  assert.equal(state.editFocus, null);
   assert.deepEqual(state.diagnostics, []);
   assert.equal(state.capture, null);
   assert.equal(state.activationEpoch, 42);
@@ -347,7 +354,7 @@ test("area, completion, proposal, and CSS draft payloads stay bounded", () => {
   assert.equal(area.candidates.length, 12);
   assert.equal(area.rect.x, 0);
   assert.equal(area.rect.width, 1);
-  assert.equal(Object.hasOwn(area.candidates[0], "styles"), false);
+  assert.equal(area.candidates[0].styles.color, "red");
   assert.equal(JSON.stringify(area).includes("must-not-pass"), false);
 
   assert.deepEqual(sanitizeCompletionAckForBridge({
@@ -394,6 +401,79 @@ test("area, completion, proposal, and CSS draft payloads stay bounded", () => {
   assert.equal(cssDraft.properties.paddingPx, 96);
   assert.equal(cssDraft.properties.marginPx, -48);
   assert.equal(Object.hasOwn(cssDraft.properties, "backgroundImage"), false);
+});
+
+test("edit-focus payloads keep searchable class hints and live CSS deltas without page text", () => {
+  const target = sanitizeTarget({
+    tagName: "button",
+    id: "save",
+    classes: ["hover:bg-sky-500", "Button_root__x7k2a", "jane@example.com"],
+    classHints: ["hover:bg-sky-500", "Button_root__x7k2a", "sm:px-4", "jane@example.com"],
+    parentPath: [
+      { tag: "form", id: "checkout", classes: ["Checkout_root__ab12"] },
+      { tag: "main", classes: ["layout"] },
+    ],
+    selector: "button#save",
+    role: "button",
+    ariaLabel: "Save",
+    rect: { x: 0.1, y: 0.2, width: 0.2, height: 0.1 },
+    styles: { padding: "8px", color: "rgb(0, 0, 0)", backgroundImage: "url(https://example.test)" },
+    textContent: "must-not-pass",
+  });
+  assert.equal(target.selector, "button#save");
+  assert.ok(target.classHints.includes("hover:bg-sky-500"));
+  assert.ok(target.classHints.includes("Button_root__x7k2a"));
+  assert.ok(target.classHints.includes("sm:px-4"));
+  assert.equal(target.classHints.some((value) => value.includes("jane@example.com")), false);
+  assert.equal(target.parentPath.length, 2);
+  assert.equal(target.parentPath[0].id, "checkout");
+  assert.equal(target.styles.padding, "8px");
+  assert.equal(Object.hasOwn(target.styles, "backgroundImage"), false);
+  assert.equal(JSON.stringify(target).includes("must-not-pass"), false);
+
+  const withTestId = sanitizeTarget({
+    tagName: "button",
+    testId: "quote-save",
+    name: "save-quote",
+    labelledBy: "Save quote",
+    classHints: ["btn"],
+  });
+  assert.equal(withTestId.testId, "quote-save");
+  assert.equal(withTestId.name, "save-quote");
+  assert.equal(withTestId.labelledBy, "Save quote");
+  assert.ok(withTestId.classHints.includes("quote-save"));
+
+  const live = sanitizeCssDraftForBridge({
+    target,
+    values: { paddingPx: 24, marginPx: 8, borderColor: "#38bdf8" },
+    cssDeltas: {
+      paddingPx: { from: 8, to: 24 },
+      marginPx: { from: 8, to: 8 },
+      backgroundImage: { from: "none", to: "url(https://example.test)" },
+    },
+    status: "previewing",
+    submitted: false,
+  });
+  assert.equal(live.status, "previewing");
+  assert.equal(live.submitted, false);
+  assert.equal(live.values.paddingPx, 24);
+  assert.deepEqual(live.cssDeltas.paddingPx, { from: 8, to: 24 });
+  assert.equal(Object.hasOwn(live.cssDeltas, "marginPx"), false);
+  assert.equal(Object.hasOwn(live.cssDeltas, "backgroundImage"), false);
+
+  const focus = sanitizeEditFocusForBridge({
+    kind: "css-draft",
+    selector: "button#save",
+    classHints: ["hover:bg-sky-500", "Button_root__x7k2a"],
+    parentPath: target.parentPath,
+    styles: target.styles,
+    cssDeltas: live.cssDeltas,
+    submitted: true,
+  });
+  assert.equal(focus.kind, "css-draft");
+  assert.equal(focus.submitted, true);
+  assert.ok(focus.classHints.includes("hover:bg-sky-500"));
+  assert.equal(sanitizeEditFocusForBridge({ kind: "secret" }).kind, "none");
 });
 
 test("assistant geometry preserves canonical coordinates for every rendered shape", () => {
@@ -447,7 +527,7 @@ test("extension state transport is page-instance scoped and keeps consent gates"
   assert.match(background, /disableActiveOverlay\(true, \{ requireBridgeClear: true \}\)/);
   assert.match(background, /cleared\.ignoredAsStale/);
   assert.match(background, /type: "VIBINK_DISABLE",[\s\S]{0,160}pageInstanceId:[\s\S]{0,100}activationEpoch:/);
-  assert.match(background, /files: \["compat\.js", "lifecycle\.js", "content\.js"\]/);
+  assert.match(background, /files: \["compat\.js", "lifecycle\.js", "selection\.js", "performance\.js", "review\.js", "content\.js"\]/);
   assert.doesNotMatch(background, /startsWith\("10\."\)|startsWith\("192\.168\."\)/);
   assert.match(content, /pageInstanceId: state\.pageInstanceId/);
   assert.match(content, /captureConsented: Boolean\(state\.captureDataUrl\)/);
@@ -501,6 +581,7 @@ test("content state clears privacy-bound context and preserves host-page interac
     "annotations",
     "assistantAnnotations",
     "history",
+    "redo",
     "draft",
     "selectedElement",
     "selectedTarget",
@@ -510,7 +591,7 @@ test("content state clears privacy-bound context and preserves host-page interac
   }
   assert.match(clearSource, /textEditor\.value = ""/);
   assert.match(clearSource, /textEditor\.hidden = true/);
-  assert.match(content, /function advanceContext\(\)[\s\S]{0,180}clearViewportBoundState\(\)/);
+  assert.match(content, /function advanceContext\(options\)[\s\S]{0,180}clearViewportBoundState\(options\)/);
   assert.match(content, /function navigationFingerprint\(\)/);
   assert.match(content, /location\.search/);
   assert.match(content, /location\.hash/);
@@ -519,8 +600,10 @@ test("content state clears privacy-bound context and preserves host-page interac
   assert.match(content, /const navigationAtConsent = navigationFingerprint\(\)/);
   assert.match(content, /captureContextMatches\(\{/);
   assert.match(content, /const cleared = await publishState\(true\)/);
-  assert.match(keyboardSource, /state\.tool !== "hand"/);
-  assert.match(keyboardSource, /!eventTargetsEditableControl\(event\)/);
+  assert.match(keyboardSource, /eventTargetsEditableControl\(event\)/);
+  assert.match(keyboardSource, /state\.history\.length/);
+  assert.match(keyboardSource, /undo\(\)/);
+  assert.doesNotMatch(keyboardSource, /state\.tool !== "hand"/);
   assert.match(content, /new MutationObserver/);
   assert.match(content, /overlayObserver\.observe\(host/);
   assert.match(content, /void setEnabled\(false\)[\s\S]{0,80}\.finally/);

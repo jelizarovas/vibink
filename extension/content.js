@@ -11,19 +11,34 @@
     enqueueMicrotask,
     randomUuid,
   } = globalThis.__VIBINK_COMPAT__;
+  const selectionTracker = globalThis.__VIBINK_SELECTION__.createSelectionTracker();
+  const localMetrics = globalThis.__VIBINK_PERFORMANCE__.createMetrics();
+  const inkCache = globalThis.__VIBINK_PERFORMANCE__.createInkCache(() => document.createElement("canvas"));
 
   const TOOL_META = {
-    hand: { label: "Interact with page", shortLabel: "Interact", icon: "hand" },
-    select: { label: "Select component or area", shortLabel: "Select", icon: "select" },
-    pen: { label: "Draw freehand", shortLabel: "Pen", icon: "pen" },
-    highlighter: { label: "Highlight", shortLabel: "Highlight", icon: "highlighter" },
-    arrow: { label: "Draw arrow", shortLabel: "Arrow", icon: "arrow" },
-    rectangle: { label: "Draw rectangle", shortLabel: "Shape", icon: "rectangle" },
-    ellipse: { label: "Draw circle or ellipse", shortLabel: "Circle", icon: "ellipse" },
-    text: { label: "Add text note", shortLabel: "Text", icon: "text" },
-    handwriting: { label: "Write into selected safe text field", shortLabel: "Write", icon: "handwriting" },
-    ruler: { label: "Measure CSS-pixel distance", shortLabel: "Ruler", icon: "ruler" },
-    eraser: { label: "Erase my annotations", shortLabel: "Eraser", icon: "eraser" },
+    hand: { label: "Interact with page", shortLabel: "Interact", icon: "hand", shortcut: "H" },
+    select: { label: "Select component or area", shortLabel: "Select", icon: "select", shortcut: "V" },
+    pen: { label: "Draw freehand", shortLabel: "Pen", icon: "pen", shortcut: "P" },
+    highlighter: { label: "Highlight", shortLabel: "Highlight", icon: "highlighter", shortcut: "Shift+P" },
+    arrow: { label: "Draw arrow", shortLabel: "Arrow", icon: "arrow", shortcut: "A" },
+    rectangle: { label: "Draw rectangle", shortLabel: "Shape", icon: "rectangle", shortcut: "S" },
+    ellipse: { label: "Draw circle or ellipse", shortLabel: "Circle", icon: "ellipse", shortcut: "O" },
+    text: { label: "Add text note", shortLabel: "Text", icon: "text", shortcut: "T" },
+    handwriting: { label: "Write into selected safe text field", shortLabel: "Write", icon: "handwriting", shortcut: "W" },
+    ruler: { label: "Measure CSS-pixel distance", shortLabel: "Ruler", icon: "ruler", shortcut: "R" },
+    eraser: { label: "Erase my annotations", shortLabel: "Eraser", icon: "eraser", shortcut: "E" },
+  };
+  const TOOL_SHORTCUTS = {
+    h: "hand",
+    v: "select",
+    p: "pen",
+    a: "arrow",
+    s: "rectangle",
+    o: "ellipse",
+    t: "text",
+    w: "handwriting",
+    r: "ruler",
+    e: "eraser",
   };
   const MAX_ANNOTATIONS = 200;
   const MAX_POINTS = 400;
@@ -34,6 +49,9 @@
   const SELECT_DRAG_THRESHOLD_PX = 8;
   const ASSISTANT_COLORS = ["#2dd4bf", "#38bdf8", "#a78bfa", "#fbbf24", "#fb7185", "#84cc16"];
   const DRAWING_TOOLS = new Set(["pen", "highlighter", "arrow", "rectangle", "ellipse", "text", "handwriting", "ruler", "eraser"]);
+  const STYLUS_TOOLS = new Set(["select", ...DRAWING_TOOLS]);
+  const PEN_MOUSE_COMPATIBILITY_WINDOW_MS = 900;
+  const MIN_POINT_DISTANCE_PX = 0.75;
   const CSS_DRAFT_FIELDS = {
     paddingPx: { label: "Padding", min: 0, max: 96, step: 1 },
     marginPx: { label: "Margin", min: -48, max: 96, step: 1 },
@@ -41,6 +59,29 @@
     borderWidthPx: { label: "Border", min: 0, max: 12, step: 1 },
     gapPx: { label: "Gap", min: 0, max: 64, step: 1 },
   };
+  const MAX_CLASS_HINTS = 8;
+  const MAX_PARENT_PATH = 4;
+  const CSS_DRAFT_PUBLISH_MS = 300;
+  const TARGET_STYLE_KEYS = [
+    ["display", 30],
+    ["position", 30],
+    ["boxSizing", 30],
+    ["width", 40],
+    ["height", 40],
+    ["color", 40],
+    ["backgroundColor", 40],
+    ["border", 80],
+    ["borderRadius", 40],
+    ["fontFamily", 80],
+    ["fontSize", 30],
+    ["fontWeight", 30],
+    ["lineHeight", 30],
+    ["padding", 60],
+    ["margin", 60],
+    ["gap", 30],
+    ["alignItems", 30],
+    ["justifyContent", 30],
+  ];
   const PNG_DATA_URL_PREFIX = "data:image/png;base64,";
   const STORAGE_POSITION = "vibink.toolbar";
   const PAGE_INSTANCE_ID = randomUuid();
@@ -48,6 +89,12 @@
   const DISCONNECTED_STATUS = "Not connected — click Vibink to reconnect.";
 
   const state = {
+    request: null,
+    requestPreviewDraft: null,
+    ownerReviewIntent: null,
+    previewView: "preview",
+    selectionStatus: "none",
+    pendingSelectionInvalidation: false,
     enabled: false,
     tool: "hand",
     color: "#a78bfa",
@@ -62,6 +109,7 @@
     diagnostics: [],
     diagnosticsEnabled: false,
     history: [],
+    redo: [],
     draft: null,
     completionAck: null,
     proposalResponse: null,
@@ -90,6 +138,8 @@
     handwriting: "<path d='M4 17c3-7 5-9 6-7 .6 1.2-2 5-1 6 1.3 1.2 4-5 5-4 .6.6-1.2 3 .2 3 1.1 0 2.4-2.2 3-1.5.8.9-.2 2.5 2.8 2.5'/><path d='M4 20h16'/>",
     ruler: "<path d='m5 17 12-12 3 3L8 20Z'/><path d='m13 7 2 2'/><path d='m10 10 2 2'/><path d='m7 13 2 2'/>",
     undo: "<path d='M9 7 5 11l4 4'/><path d='M6 11h7a5 5 0 0 1 5 5v1'/>",
+    redo: "<path d='M15 7 19 11l-4 4'/><path d='M18 11H11a5 5 0 0 0-5 5v1'/>",
+    stylus: "<path d='M7 17v4'/><path d='m12 4 8 8-8.5 8.5H7v-4.5Z'/><path d='m15 7 2 2'/>",
     clear: "<path d='m7 8 10 10'/><path d='m17 8-10 10'/><path d='M4 4h16'/>",
     diagnostics: "<path d='M12 4 3.5 19h17Z'/><path d='M12 9v4'/><path d='M12 16h.01'/>",
     capture: "<rect x='4' y='6' width='16' height='13' rx='2'/><path d='m8 6 1-2h6l1 2'/><circle cx='12' cy='12.5' r='3'/>",
@@ -113,13 +163,17 @@
 
   function send(message) {
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage(message, (response) => {
-        if (chrome.runtime.lastError) {
-          resolve({ ok: false, error: chrome.runtime.lastError.message });
-          return;
-        }
-        resolve(response || { ok: false, error: "No response." });
-      });
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ ok: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          resolve(response || { ok: false, error: "No response." });
+        });
+      } catch {
+        resolve({ ok: false, error: "Reload this page to reconnect Vibink." });
+      }
     });
   }
 
@@ -237,6 +291,119 @@
     return token;
   }
 
+  function classHint(value) {
+    const text = redact(String(value || "").trim(), 80);
+    if (!text || /\[redacted/i.test(text)) return "";
+    if (/\s/.test(text) || /[<>"'`\\]/.test(text)) return "";
+    return text;
+  }
+
+  function parentOf(node) {
+    if (!(node instanceof Element)) return null;
+    if (node.parentElement instanceof Element) return node.parentElement;
+    const root = node.getRootNode?.();
+    if (root instanceof ShadowRoot && root.host instanceof Element) return root.host;
+    try {
+      const frame = node.ownerDocument?.defaultView?.frameElement;
+      if (frame instanceof Element) return frame;
+    } catch {
+      // Cross-origin frame access is expected to fail.
+    }
+    return null;
+  }
+
+  function labelledByText(element) {
+    const ids = String(element.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).slice(0, 3);
+    if (!ids.length) return "";
+    const root = element.getRootNode?.();
+    const lookup = (id) => {
+      try {
+        if (root instanceof Document || root instanceof ShadowRoot) return root.getElementById(id);
+      } catch {
+        // Closed or cross-origin roots cannot be read.
+      }
+      return document.getElementById(id);
+    };
+    return redact(ids.map((id) => String(lookup(id)?.textContent || "").trim()).filter(Boolean).join(" "), 80);
+  }
+
+  function isVibinkOverlayNode(element) {
+    return element === host || Boolean(element?.closest?.("[data-vibink]"));
+  }
+
+  function pierceFromRoot(root, clientX, clientY, depth) {
+    if (!root || depth > 8) return null;
+    let hits;
+    try {
+      hits = root.elementsFromPoint(clientX, clientY);
+    } catch {
+      return null;
+    }
+    const candidate = (hits || []).find((element) => element instanceof Element && !isVibinkOverlayNode(element));
+    if (!candidate) return null;
+    if (candidate.shadowRoot) {
+      const nested = pierceFromRoot(candidate.shadowRoot, clientX, clientY, depth + 1);
+      if (nested && nested !== candidate) return nested;
+    }
+    if (candidate.tagName === "IFRAME" || candidate.tagName === "FRAME") {
+      try {
+        const doc = candidate.contentDocument;
+        if (!doc) return candidate;
+        const rect = candidate.getBoundingClientRect();
+        const nested = pierceFromRoot(doc, clientX - rect.left, clientY - rect.top, depth + 1);
+        return nested || candidate;
+      } catch {
+        return candidate;
+      }
+    }
+    return candidate;
+  }
+
+  function deepestElementFromPoint(clientX, clientY) {
+    const previous = canvas.style.pointerEvents;
+    canvas.style.pointerEvents = "none";
+    try {
+      return pierceFromRoot(document, clientX, clientY, 0);
+    } finally {
+      canvas.style.pointerEvents = previous;
+    }
+  }
+
+  function describeParentPath(element) {
+    const path = [];
+    let current = parentOf(element);
+    while (current && path.length < MAX_PARENT_PATH && current !== document.documentElement) {
+      const tag = String(current.tagName || "").toLowerCase();
+      if (["html", "body", "head", "script", "style", "link", "meta"].includes(tag)) {
+        current = parentOf(current);
+        continue;
+      }
+      path.push({
+        tag,
+        id: safeToken(current.id),
+        classes: Array.from(current.classList || []).map(classHint).filter(Boolean).slice(0, 3),
+      });
+      current = parentOf(current);
+    }
+    return path;
+  }
+
+  function elementSelector(element, tag, identifier, classHints) {
+    if (identifier) return `${tag}#${identifier}`;
+    const testId = classHint(element.getAttribute("data-testid") || element.getAttribute("data-test-id") || "");
+    if (testId) return `${tag}[${element.hasAttribute("data-testid") ? "data-testid" : "data-test-id"}="${testId}"]`;
+    const stable = (classHints || []).find((name) => /^[A-Za-z_-][A-Za-z0-9_-]*$/.test(name));
+    let selector = stable ? `${tag}.${stable}` : tag;
+    const parent = element.parentElement;
+    if (!parent) return selector;
+    const sameTag = [...parent.children].filter((child) => child.tagName === element.tagName);
+    if (sameTag.length > 1) {
+      const index = sameTag.indexOf(element) + 1;
+      if (index > 0) selector += `:nth-of-type(${index})`;
+    }
+    return selector;
+  }
+
   function safeRoute() {
     const route = String(location.pathname || "/")
       .split("/")
@@ -286,36 +453,71 @@
     return sampled.slice(0, MAX_POINTS);
   }
 
+  function pixelDistance(a, b) {
+    if (!a || !b) return Number.POSITIVE_INFINITY;
+    return Math.hypot((a.x - b.x) * window.innerWidth, (a.y - b.y) * window.innerHeight);
+  }
+
+  function appendStrokePoints(existing, incoming) {
+    const next = Array.isArray(existing) ? existing.slice() : [];
+    for (const point of incoming) {
+      const previous = next[next.length - 1];
+      if (!previous || pixelDistance(previous, point) >= MIN_POINT_DISTANCE_PX) next.push(point);
+    }
+    return downsample(next);
+  }
+
+  function smoothStrokePoints(points) {
+    if (!Array.isArray(points) || points.length < 3) return points;
+    return points.map((point, index) => {
+      if (index === 0 || index === points.length - 1) return point;
+      const previous = points[index - 1];
+      const next = points[index + 1];
+      return {
+        x: (previous.x + point.x * 2 + next.x) / 4,
+        y: (previous.y + point.y * 2 + next.y) / 4,
+      };
+    });
+  }
+
   function describeElement(element) {
     if (!(element instanceof Element)) return null;
     const rect = element.getBoundingClientRect();
     const computed = getComputedStyle(element);
-    const classes = Array.from(element.classList || []).map(safeToken).filter(Boolean).slice(0, 4);
+    const classHints = Array.from(element.classList || []).map(classHint).filter(Boolean);
+    const testId = classHint(element.getAttribute("data-testid") || element.getAttribute("data-test-id") || "");
+    const nameHint = classHint(element.getAttribute("name") || "");
+    if (testId && !classHints.includes(testId)) classHints.unshift(testId);
+    if (nameHint && !classHints.includes(nameHint)) classHints.push(nameHint);
+    const boundedHints = classHints.slice(0, MAX_CLASS_HINTS);
+    const classes = boundedHints.filter((value) => /^[A-Za-z_-][A-Za-z0-9_-]*$/.test(value)).slice(0, 4);
     const identifier = safeToken(element.id);
+    const tagName = element.tagName.toLowerCase();
     const ariaLabel = redact(element.getAttribute("aria-label") || "", 100);
+    const labelledBy = labelledByText(element);
+    const styles = Object.fromEntries(
+      TARGET_STYLE_KEYS.map(([key, maxLength]) => [key, redact(computed[key], maxLength)]),
+    );
     return {
-      tagName: element.tagName.toLowerCase(),
+      tagName,
+      tag: tagName,
       id: identifier,
       classes,
+      classHints: boundedHints,
+      testId,
+      name: nameHint,
+      selector: elementSelector(element, tagName, identifier, boundedHints),
+      parentPath: describeParentPath(element),
       role: safeToken(element.getAttribute("role")),
       ariaLabel,
+      labelledBy,
       rect: {
         x: clamp(rect.left / Math.max(1, window.innerWidth)),
         y: clamp(rect.top / Math.max(1, window.innerHeight)),
         width: clamp(rect.width / Math.max(1, window.innerWidth)),
         height: clamp(rect.height / Math.max(1, window.innerHeight)),
       },
-      styles: {
-        display: redact(computed.display, 30),
-        position: redact(computed.position, 30),
-        color: redact(computed.color, 40),
-        backgroundColor: redact(computed.backgroundColor, 40),
-        fontFamily: redact(computed.fontFamily, 80),
-        fontSize: redact(computed.fontSize, 30),
-        fontWeight: redact(computed.fontWeight, 30),
-        lineHeight: redact(computed.lineHeight, 30),
-        borderRadius: redact(computed.borderRadius, 30),
-      },
+      styles,
     };
   }
 
@@ -347,32 +549,34 @@
     ".vb-proposal-action[data-decision='rejected']{border-color:#fb7185;background:#4c0519}",
     ".vb-proposal-resize{position:absolute;right:-7px;bottom:-7px;display:grid;place-items:center;width:34px;height:34px;border:2px solid #111113;border-radius:9px;background:var(--proposal-color,#a78bfa);color:#111113;cursor:nwse-resize;pointer-events:auto;touch-action:none}",
     "@keyframes vb-proposal-pulse{0%,100%{filter:saturate(.9);opacity:.82}50%{filter:saturate(1.25);opacity:1}}",
-    ".vb-toolbar{position:fixed;top:14px;right:14px;z-index:4;width:146px;max-height:calc(100vh - 28px);display:flex;flex-direction:column;pointer-events:auto;border:1px solid rgba(255,255,255,.14);border-radius:15px;background:rgba(17,17,19,.95);box-shadow:0 18px 48px rgba(0,0,0,.34);backdrop-filter:blur(18px);overflow:auto;overscroll-behavior:contain;user-select:none}",
+    ".vb-toolbar{position:fixed;top:14px;right:14px;z-index:4;width:112px;max-height:calc(100vh - 28px);display:flex;flex-direction:column;pointer-events:auto;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(17,17,19,.95);box-shadow:0 18px 48px rgba(0,0,0,.34);backdrop-filter:blur(18px);overflow:auto;overscroll-behavior:contain;user-select:none}",
     ".vb-toolbar[data-temporary-select='true']{border-color:#38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,.24),0 18px 48px rgba(0,0,0,.34)}",
-    ".vb-toolbar-head{display:grid;grid-template-columns:1fr 48px 48px;gap:3px;padding:5px;border-bottom:1px solid #34343a}",
-    ".vb-grip{position:relative;display:flex;align-items:center;justify-content:center;gap:4px;min-width:0;height:48px;border-radius:9px;background:#222228;cursor:grab;touch-action:none}",
+    ".vb-toolbar-head{display:grid;grid-template-columns:1fr 36px 36px;gap:2px;padding:3px;border-bottom:1px solid #34343a}",
+    ".vb-grip{position:relative;display:flex;align-items:center;justify-content:center;gap:3px;min-width:0;height:36px;border-radius:7px;background:#222228;cursor:grab;touch-action:none}",
     ".vb-grip:active{cursor:grabbing}",
-    ".vb-logo{display:block;width:32px;height:32px;border-radius:9px}",
-    ".vb-dot{position:absolute;right:5px;top:5px;width:7px;height:7px;border-radius:99px;background:#52525b;box-shadow:0 0 0 2px rgba(82,82,91,.2)}",
+    ".vb-logo{display:block;width:22px;height:22px;border-radius:6px}",
+    ".vb-dot{position:absolute;right:4px;top:4px;width:6px;height:6px;border-radius:99px;background:#52525b;box-shadow:0 0 0 2px rgba(82,82,91,.2)}",
     ".vb-dot[data-connected='true']{background:#34d399;box-shadow:0 0 0 2px rgba(52,211,153,.16)}",
-    ".vb-input-mode{position:absolute;left:3px;right:3px;bottom:2px;overflow:hidden;color:#a1a1aa;font:800 7px/1 system-ui;text-align:center;text-overflow:ellipsis;white-space:nowrap}",
-    ".vb-pen-cursor{position:fixed;z-index:3;display:grid;place-items:center;width:30px;height:30px;border:2px solid #38bdf8;border-radius:99px;background:rgba(8,47,73,.76);color:#e0f2fe;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .08s}",
+    ".vb-input-mode{position:absolute;left:2px;right:2px;bottom:1px;overflow:hidden;color:#a1a1aa;font:800 6px/1 system-ui;text-align:center;text-overflow:ellipsis;white-space:nowrap}",
+    ".vb-pen-cursor{position:fixed;z-index:3;display:block;width:12px;height:12px;border:2px solid #a1a1aa;border-radius:99px;background:transparent;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .08s}",
     ".vb-pen-cursor[data-open='true']{opacity:1}",
-    ".vb-pen-cursor .vb-icon{width:17px;height:17px}",
-    ".vb-tool-grid,.vb-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:5px}",
+    ".vb-pen-cursor .vb-icon{display:none}",
+    ".vb-tool-grid,.vb-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;padding:3px}",
     ".vb-action-grid{border-top:1px solid #34343a}",
-    ".vb-tool,.vb-action{position:relative;display:flex;min-width:0;min-height:54px;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:5px 2px;border:1px solid transparent;border-radius:9px;background:transparent;color:#d4d4d8;cursor:pointer;touch-action:manipulation}",
+    ".vb-tool,.vb-action{position:relative;display:flex;min-width:0;min-height:36px;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 1px;border:1px solid transparent;border-radius:7px;background:transparent;color:#d4d4d8;cursor:pointer;touch-action:manipulation}",
     ".vb-tool:hover,.vb-action:hover{background:#2a2a30;color:#fff}",
+    ".vb-tool[data-stylus='true']{box-shadow:inset 0 0 0 2px #22d3ee}",
     ".vb-tool[aria-pressed='true']{border-color:#8b5cf6;background:#6d28d9;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}",
+    ".vb-tool[aria-pressed='true'][data-stylus='true']{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),inset 0 0 0 2px #67e8f9}",
     ".vb-action[aria-pressed='true']{border-color:#f59e0b;background:#78350f;color:#fef3c7}",
     ".vb-action[data-action='clear']{color:#fda4af}",
     ".vb-action[data-action='clear']:hover{border-color:#fb7185;background:#4c0519;color:#fff}",
-    ".vb-icon{display:block;width:21px;height:21px;flex:0 0 21px}",
-    ".vb-control-label{display:block;max-width:100%;overflow:hidden;color:inherit;font:700 9px/1.1 system-ui;text-align:center;text-overflow:ellipsis;white-space:nowrap}",
-    ".vb-action[data-unread='true']::after{content:'';position:absolute;top:5px;right:7px;width:7px;height:7px;border:2px solid #18181b;border-radius:99px;background:#38bdf8}",
-    ".vb-color-control{grid-column:1/-1;display:flex;min-height:46px;align-items:center;justify-content:center;gap:8px;border:1px solid transparent;border-radius:9px;color:#d4d4d8;font:700 9px/1 system-ui;cursor:pointer}",
+    ".vb-icon{display:block;width:16px;height:16px;flex:0 0 16px}",
+    ".vb-control-label{display:block;max-width:100%;overflow:hidden;color:inherit;font:700 8px/1.1 system-ui;text-align:center;text-overflow:ellipsis;white-space:nowrap}",
+    ".vb-action[data-unread='true']::after{content:'';position:absolute;top:3px;right:5px;width:6px;height:6px;border:2px solid #18181b;border-radius:99px;background:#38bdf8}",
+    ".vb-color-control{grid-column:1/-1;display:flex;min-height:32px;align-items:center;justify-content:center;gap:6px;border:1px solid transparent;border-radius:7px;color:#d4d4d8;font:700 8px/1 system-ui;cursor:pointer}",
     ".vb-color-control:hover{background:#2a2a30;color:#fff}",
-    ".vb-color{width:28px;height:28px;border:0;padding:2px;border-radius:7px;background:#27272a;cursor:pointer;touch-action:manipulation}",
+    ".vb-color{width:20px;height:20px;border:0;padding:1px;border-radius:5px;background:#27272a;cursor:pointer;touch-action:manipulation}",
     ".vb-panel{position:fixed;z-index:5;width:min(310px,calc(100vw - 20px));max-height:calc(100vh - 20px);overflow:auto;pointer-events:auto;border:1px solid rgba(255,255,255,.16);border-radius:14px;background:rgba(17,17,19,.97);box-shadow:0 18px 48px rgba(0,0,0,.38);color:#fafafa}",
     ".vb-panel[hidden]{display:none}",
     ".vb-panel-head{display:flex;align-items:center;gap:8px;min-height:46px;padding:7px 8px;border-bottom:1px solid #34343a;cursor:move;touch-action:none}",
@@ -396,8 +600,8 @@
     ".vb-toast[data-open='true']{opacity:1;transform:translate(-50%,0)}",
     ".vb-text-editor{position:fixed;z-index:2;min-width:180px;height:34px;padding:0 9px;border:2px solid #8b5cf6;border-radius:8px;background:#111113;color:#fff;font:600 13px system-ui;box-shadow:0 8px 28px rgba(0,0,0,.4);pointer-events:auto}",
     ".vb-text-editor[hidden]{display:none}",
-    "@media(max-width:420px){.vb-toolbar{top:8px;right:8px;width:138px;max-height:calc(100vh - 16px)}.vb-panel{width:min(270px,calc(100vw - 16px))}.vb-css-field{grid-template-columns:72px 1fr 58px}}",
-    "@media(pointer:coarse){.vb-toolbar{top:8px;right:8px;width:166px;max-height:calc(100vh - 16px);border-radius:16px}.vb-toolbar-head{grid-template-columns:1fr 54px 54px;gap:5px;padding:6px}.vb-grip{height:54px}.vb-logo{width:38px;height:38px}.vb-tool-grid,.vb-action-grid{gap:6px;padding:6px}.vb-tool,.vb-action{min-height:64px;border-radius:11px}.vb-icon{width:24px;height:24px;flex-basis:24px}.vb-control-label{font-size:11px}.vb-color-control{min-height:54px;font-size:11px}.vb-color{width:38px;height:38px}.vb-panel{width:min(360px,calc(100vw - 16px))}.vb-panel-head{min-height:58px}.vb-panel-close{width:46px;height:46px}.vb-panel-title{font-size:14px}.vb-panel-copy,.vb-panel-status{font-size:13px}.vb-css-field{grid-template-columns:96px 1fr 72px;font-size:12px}.vb-css-field input[type='number'],.vb-css-field select{height:46px;font-size:15px}.vb-css-actions button{min-height:50px;font-size:12px}.vb-proposal-action{min-height:46px;font-size:12px}.vb-proposal-resize{width:46px;height:46px}.vb-toast{padding:12px 14px;border-radius:12px;font-size:14px}.vb-text-editor{min-width:230px;height:48px;font-size:16px}}",
+    "@media(max-width:420px){.vb-toolbar{top:8px;right:8px;width:104px;max-height:calc(100vh - 16px)}.vb-panel{width:min(270px,calc(100vw - 16px))}.vb-css-field{grid-template-columns:72px 1fr 58px}}",
+    "@media(hover:none) and (pointer:coarse){.vb-toolbar{top:8px;right:8px;width:166px;max-height:calc(100vh - 16px);border-radius:16px}.vb-toolbar-head{grid-template-columns:1fr 54px 54px;gap:5px;padding:6px}.vb-grip{height:54px}.vb-logo{width:38px;height:38px}.vb-tool-grid,.vb-action-grid{gap:6px;padding:6px}.vb-tool,.vb-action{min-height:64px;border-radius:11px}.vb-icon{width:24px;height:24px;flex-basis:24px}.vb-control-label{font-size:11px}.vb-color-control{min-height:54px;font-size:11px}.vb-color{width:38px;height:38px}.vb-panel{width:min(360px,calc(100vw - 16px))}.vb-panel-head{min-height:58px}.vb-panel-close{width:46px;height:46px}.vb-panel-title{font-size:14px}.vb-panel-copy,.vb-panel-status{font-size:13px}.vb-css-field{grid-template-columns:96px 1fr 72px;font-size:12px}.vb-css-field input[type='number'],.vb-css-field select{height:46px;font-size:15px}.vb-css-actions button{min-height:50px;font-size:12px}.vb-proposal-action{min-height:46px;font-size:12px}.vb-proposal-resize{width:46px;height:46px}.vb-toast{padding:12px 14px;border-radius:12px;font-size:14px}.vb-text-editor{min-width:230px;height:48px;font-size:16px}}",
   ].join("");
   shadow.append(style);
 
@@ -414,7 +618,7 @@
   canvas.className = "vb-canvas";
   canvas.setAttribute("aria-hidden", "true");
   shadow.append(canvas);
-  const context = canvas.getContext("2d");
+  let context = canvas.getContext("2d");
 
   const penCursor = document.createElement("div");
   penCursor.className = "vb-pen-cursor";
@@ -438,13 +642,15 @@
     "<div class='vb-tool-grid'>",
     Object.entries(TOOL_META).map(([tool, meta]) => labeledControl({
       className: "vb-tool",
-      attributes: `data-tool='${tool}' title='${meta.label}' aria-label='${meta.label}' aria-pressed='false'`,
+      attributes: `data-tool='${tool}' title='${meta.label}${meta.shortcut ? ` (${meta.shortcut})` : ""}' aria-label='${meta.label}' aria-pressed='false'`,
       icon: meta.icon,
       label: meta.shortLabel,
     })).join(""),
     "</div>",
     "<div class='vb-action-grid'>",
-    labeledControl({ className: "vb-action", attributes: "data-action='undo' title='Undo my last annotation' aria-label='Undo my last annotation'", icon: "undo", label: "Undo" }),
+    labeledControl({ className: "vb-action", attributes: "data-action='undo' title='Undo my last annotation (Ctrl+Z)' aria-label='Undo my last annotation'", icon: "undo", label: "Undo" }),
+    labeledControl({ className: "vb-action", attributes: "data-action='redo' title='Redo my last annotation (Ctrl+Shift+Z)' aria-label='Redo my last annotation'", icon: "redo", label: "Redo" }),
+    labeledControl({ className: "vb-action", attributes: "data-action='stylus' title='Toggle separate pen tool' aria-label='Toggle separate pen tool' aria-pressed='false'", icon: "stylus", label: "Stylus" }),
     labeledControl({ className: "vb-action", attributes: "data-action='clear' title='Clear my annotations only' aria-label='Clear my annotations only'", icon: "clear", label: "Clear" }),
     labeledControl({ className: "vb-action", attributes: "data-action='diagnostics' title='Share sanitized page errors for this session' aria-label='Share diagnostics for this session' aria-pressed='false'", icon: "diagnostics", label: "Errors" }),
     labeledControl({ className: "vb-action", attributes: "data-action='capture' title='Capture this frame for Codex' aria-label='Capture this frame for Codex'", icon: "capture", label: "Capture" }),
@@ -559,9 +765,31 @@
   let proposalExpiryTimer = null;
   const runStateChange = createSerialQueue();
   let bridgeProbeRevision = 0;
+  let completedBridgeProbeRevision = 0;
+  let bridgeFailures = 0;
+  const reviewControls = globalThis.__VIBINK_REVIEW__.createReviewControls({
+    root: feedbackPanel,
+    onStartRequest: startVisualRequest,
+    onViewChange: setReviewView,
+    onIntent: submitReviewIntent,
+  });
   let polling = false;
+  let feedbackPollTimer = null;
+  let lastPublishedDrawing = false;
   let textAnchor = null;
   let drawingPointerId = null;
+  let lastPointerType = "mouse";
+  let stylusTool = "pen";
+  let stylusEnabled = false;
+  let stylusManualOverride = false;
+  let stylusDrawing = false;
+  let lastPenActivity = Number.NEGATIVE_INFINITY;
+  let penCompatibilityTimer = null;
+  let strokeRenderFrame = null;
+  let pendingViewportInvalidation = false;
+  let lastViewportFingerprint = `${window.innerWidth}x${window.innerHeight}:${Math.round(window.scrollX)}:${Math.round(window.scrollY)}`;
+  let overlayIntegrityFailures = 0;
+  let cssDraftPublishTimer = null;
   let temporarySelectTool = null;
   let temporarySelectPointerId = null;
   let temporaryEraserTool = null;
@@ -617,6 +845,7 @@
   }
 
   function updateFeedbackPanel() {
+    updateReviewControls();
     feedbackMessage.textContent = state.assistantMessage || "No assistant suggestion yet.";
     proposalStatus.textContent = state.activeProposal
       ? `Active draft: ${state.activeProposal.label}. Drag or resize it, then Approve or Reject.`
@@ -628,13 +857,109 @@
     if (!feedbackPanel.hidden) setInfoUnread(false);
   }
 
+  function updateReviewControls(connectionState) {
+    reviewControls.update({
+      request: state.request,
+      connectionState: connectionState || (state.bridgeConnected ? (bridgeFailures ? "retrying" : "ready") : "disconnected"),
+      previewAvailable: Boolean(state.request && (state.assistantOverlays.length || state.assistantAnnotations.length
+        || state.activeProposal || (state.cssDraft && state.cssDraft === state.requestPreviewDraft))),
+      previewView: state.previewView,
+      pendingIntent: state.ownerReviewIntent,
+    });
+    assistantOverlayLayer.style.visibility = state.previewView === "original" ? "hidden" : "";
+    proposalLayer.style.visibility = state.previewView === "original" ? "hidden" : "";
+  }
+
+  async function startVisualRequest() {
+    if (!state.enabled || !state.bridgeConnected || drawingPointerId !== null) return false;
+    const activationEpoch = state.activationEpoch;
+    const published = await publishState(true);
+    if (!published.ok || !state.enabled || state.activationEpoch !== activationEpoch) return false;
+    const contextRevision = state.contextRevision;
+    const expectedSequence = state.sequence;
+    const targetLabel = state.selectedTarget?.selector || "Selected page context";
+    const previewDraft = state.cssDraft;
+    const previewFingerprint = JSON.stringify(serializeCssDraft());
+    const result = await send({
+      type: "VIBINK_BRIDGE_REQUEST", pageInstanceId: state.pageInstanceId, activationEpoch,
+      path: "/browser/request",
+      options: { method: "POST", timeoutMs: 3200, body: {
+        pageInstanceId: state.pageInstanceId, activationEpoch, contextRevision, expectedSequence,
+      } },
+    });
+    if (!state.enabled || state.activationEpoch !== activationEpoch || state.contextRevision !== contextRevision) return false;
+    if (!result.ok || !result.request) return false;
+    if (Number.isSafeInteger(result.feedbackRevision) && result.feedbackRevision < state.feedbackRevision) return false;
+    if (Number.isSafeInteger(result.feedbackRevision)) state.feedbackRevision = Math.max(state.feedbackRevision, result.feedbackRevision);
+    state.request = { ...result.request, targetLabel };
+    state.requestPreviewDraft = state.cssDraft === previewDraft
+      && JSON.stringify(serializeCssDraft()) === previewFingerprint ? previewDraft : null;
+    state.ownerReviewIntent = null;
+    state.assistantAnnotations = [];
+    state.assistantOverlays = [];
+    state.assistantMessage = "";
+    clearActiveProposal();
+    state.activeCompletionRequest = null;
+    setReviewView("preview", { requestId: state.request.requestId });
+    renderAssistantOverlays();
+    updateFeedbackPanel();
+    showToast("Request received by the local bridge. Continue with Codex.");
+    return true;
+  }
+
+  function setReviewView(view, { requestId }) {
+    if (state.request?.requestId !== requestId || !["original", "preview"].includes(view)) return false;
+    const draft = state.cssDraft === state.requestPreviewDraft ? state.cssDraft : null;
+    if (draft?.element?.isConnected && view !== state.previewView) {
+      if (view === "original") {
+        if (draft.lastWritten && JSON.stringify(captureInlineCss(draft.element)) !== JSON.stringify(draft.lastWritten)) {
+          cancelCssDraft();
+          showToast("The page changed since the preview. The draft was cancelled to preserve that change.");
+          updateReviewControls();
+          return false;
+        }
+        restoreInlineCss(draft.element, draft.original, draft.lastWritten);
+        draft.compareOriginal = captureInlineCss(draft.element);
+      } else {
+        if (!draft.compareOriginal || JSON.stringify(captureInlineCss(draft.element)) !== JSON.stringify(draft.compareOriginal)) {
+          cancelCssDraft();
+          showToast("The page changed during comparison. Select the component again before previewing.");
+          return false;
+        }
+        applyCssDraftPreview();
+      }
+    }
+    state.previewView = view;
+    refreshSelectedTarget();
+    render();
+    updateReviewControls();
+    return true;
+  }
+
+  async function submitReviewIntent({ requestId, action }) {
+    if (!state.enabled || !state.bridgeConnected || state.request?.requestId !== requestId
+      || !["keep", "request_changes", "revert"].includes(action)) return false;
+    const intent = { intentId: randomUuid(), requestId, action };
+    state.ownerReviewIntent = intent;
+    state.sequence += 1;
+    const result = await publishState(true);
+    if (state.request?.requestId !== requestId) return false;
+    if (!result.ok && state.ownerReviewIntent === intent) state.ownerReviewIntent = null;
+    updateReviewControls();
+    return result.ok;
+  }
+
   function updateBridgeConnection(connected, probeRevision) {
-    if (probeRevision !== bridgeProbeRevision) return false;
+    if (probeRevision < completedBridgeProbeRevision) return false;
+    completedBridgeProbeRevision = probeRevision;
     const nextConnected = Boolean(connected);
+    bridgeFailures = nextConnected ? 0 : bridgeFailures + 1;
+    updateReviewControls(nextConnected ? "ready" : bridgeFailures < 2 ? "retrying" : "disconnected");
     const wasConnected = state.bridgeConnected;
     const diagnosticsWereEnabled = state.diagnosticsEnabled;
-    state.bridgeConnected = nextConnected;
     if (!nextConnected) stopDiagnostics("");
+    if (!nextConnected && wasConnected && bridgeFailures < 2) return false;
+    state.bridgeConnected = nextConnected;
     bridgeDot.dataset.connected = String(nextConnected);
     bridgeDot.title = nextConnected ? "Vibink bridge connected" : "Vibink bridge disconnected";
 
@@ -654,31 +979,168 @@
     return true;
   }
 
+  function viewportFingerprint() {
+    return `${window.innerWidth}x${window.innerHeight}:${Math.round(window.scrollX)}:${Math.round(window.scrollY)}`;
+  }
+
+  function eventFromOverlayChrome(event) {
+    const path = event.composedPath();
+    if (!path.includes(host) || path.includes(canvas)) return false;
+    // Window listeners see only the host of a closed shadow root. Hit-test inside
+    // that root to distinguish the ink canvas from toolbar/panel controls.
+    if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      return shadow.elementFromPoint(event.clientX, event.clientY) !== canvas;
+    }
+    return true;
+  }
+
+  function withinPenCompatibilityWindow() {
+    return stylusDrawing || (performance.now() - lastPenActivity < PEN_MOUSE_COMPATIBILITY_WINDOW_MS);
+  }
+
+  function isCompatibilityMouse(event) {
+    return event.pointerType === "mouse" && withinPenCompatibilityWindow();
+  }
+
+  function markPenActivity() {
+    lastPenActivity = performance.now();
+    if (penCompatibilityTimer) clearTimeout(penCompatibilityTimer);
+    penCompatibilityTimer = setTimeout(() => {
+      penCompatibilityTimer = null;
+      if (drawingPointerId !== null || stylusDrawing) return;
+      syncCanvasHitTesting();
+    }, PEN_MOUSE_COMPATIBILITY_WINDOW_MS);
+  }
+
+  function registerStylusFromEvent(event) {
+    if (event.pointerType !== "pen") return;
+    markPenActivity();
+    if (stylusManualOverride || stylusEnabled) return;
+    stylusEnabled = true;
+    updateToolUi();
+    showToast("Pen keeps its own tool. Fingers and mouse can still use Interact.", 4200);
+    state.sequence += 1;
+    schedulePublish();
+  }
+
+  function toggleStylusEnabled() {
+    stylusManualOverride = true;
+    stylusEnabled = !stylusEnabled;
+    if (!stylusEnabled) stylusDrawing = false;
+    updateToolUi();
+    showToast(stylusEnabled
+      ? "Stylus on — pen keeps its own tool."
+      : "Stylus off — pen uses the same tool as mouse.", 4200);
+    state.sequence += 1;
+    schedulePublish();
+  }
+
+  function resolvePointerTool(event) {
+    if (temporaryEraserTool) return "eraser";
+    if (temporarySelectTool) return "select";
+    if (isCompatibilityMouse(event)) return null;
+    if (event.pointerType === "pen") {
+      if (!stylusEnabled) return state.tool;
+      if (penEraserRequested(event)) return "eraser";
+      if (penBarrelSelectRequested(event)) return "select";
+      return STYLUS_TOOLS.has(stylusTool) ? stylusTool : "pen";
+    }
+    return state.tool;
+  }
+
+  function queueStrokeRender() {
+    if (strokeRenderFrame !== null) return;
+    const queuedAt = performance.now();
+    strokeRenderFrame = requestAnimationFrame(() => {
+      strokeRenderFrame = null;
+      render();
+      localMetrics.record("inputToFrameMs", performance.now() - queuedAt);
+    });
+  }
+
+  function cancelStrokeRenderFrame() {
+    if (strokeRenderFrame === null) return;
+    cancelAnimationFrame(strokeRenderFrame);
+    strokeRenderFrame = null;
+  }
+
+  function suppressTouchDuringPenStroke(event) {
+    if (!stylusDrawing) return false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
+
+  function syncCanvasHitTesting() {
+    const mouseWantsInk = state.enabled && state.tool !== "hand" && lastPointerType === "mouse" && !withinPenCompatibilityWindow();
+    const penTipDown = state.enabled && (stylusDrawing || (lastPointerType === "pen" && drawingPointerId !== null));
+    const captureInk = mouseWantsInk || penTipDown;
+    canvas.style.pointerEvents = captureInk ? "auto" : "none";
+    canvas.style.cursor = captureInk
+      ? (penTipDown ? "none" : "crosshair")
+      : "default";
+  }
+
+  function requestViewportInvalidation() {
+    const next = viewportFingerprint();
+    if (next === lastViewportFingerprint) return;
+    if (drawingPointerId !== null) {
+      pendingViewportInvalidation = true;
+      return;
+    }
+    lastViewportFingerprint = next;
+    pendingViewportInvalidation = false;
+    advanceContext({ preserveSelection: true });
+    schedulePublish();
+  }
+
+  function flushPendingViewportInvalidation() {
+    if (drawingPointerId !== null || !pendingViewportInvalidation) return;
+    pendingViewportInvalidation = false;
+    const next = viewportFingerprint();
+    lastViewportFingerprint = next;
+    advanceContext({ preserveSelection: true });
+    schedulePublish();
+  }
+
   function updateToolUi() {
     toolbar.querySelectorAll("[data-tool]").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.tool === state.tool));
+      button.dataset.stylus = String(stylusEnabled && button.dataset.tool === stylusTool && button.dataset.tool !== "hand");
     });
-    canvas.style.pointerEvents = "none";
-    canvas.style.cursor = "default";
+    const stylusButton = toolbar.querySelector("[data-action='stylus']");
+    if (stylusButton) stylusButton.setAttribute("aria-pressed", String(stylusEnabled));
+    syncCanvasHitTesting();
     if (!temporarySelectTool && !temporaryEraserTool) {
       inputModeCue.textContent = state.tool === "hand" ? "PAGE" : "PEN / MOUSE";
     }
   }
 
   function updatePointerAffordance(event) {
+    if (!state.enabled) {
+      penCursor.dataset.open = "false";
+      return;
+    }
     if (event.pointerType === "touch") {
+      if (stylusDrawing) return;
+      lastPointerType = "touch";
+      syncCanvasHitTesting();
       inputModeCue.textContent = "TOUCH · PAGE";
       penCursor.dataset.open = "false";
       return;
     }
+    if (isCompatibilityMouse(event)) {
+      penCursor.dataset.open = "false";
+      syncCanvasHitTesting();
+      return;
+    }
+    lastPointerType = event.pointerType;
+    syncCanvasHitTesting();
     if (event.pointerType === "pen") {
-      inputModeCue.textContent = temporaryEraserTool
-        ? "PEN · ERASER"
-        : temporarySelectTool
-          ? "PEN · SELECT"
-          : `PEN · ${state.tool.toUpperCase()}`;
-      if (state.tool !== "hand") {
-        penCursor.innerHTML = iconSvg(state.tool === "select" ? "select" : TOOL_META[state.tool]?.icon || "pen");
+      registerStylusFromEvent(event);
+      const penTool = resolvePointerTool(event) || stylusTool;
+      inputModeCue.textContent = `PEN · ${String(penTool).toUpperCase()}`;
+      if (penTool !== "hand") {
         penCursor.style.left = `${event.clientX}px`;
         penCursor.style.top = `${event.clientY}px`;
         penCursor.dataset.open = "true";
@@ -780,7 +1242,7 @@
     }
     state.draft.changed = true;
     state.annotations = remaining;
-    render();
+    queueStrokeRender();
   }
 
   function applyStroke(annotation) {
@@ -1163,9 +1625,19 @@
   }
 
   function render() {
+    const startedAt = performance.now();
     context.clearRect(0, 0, window.innerWidth, window.innerHeight);
-    state.annotations.forEach(drawAnnotation);
-    state.assistantAnnotations.forEach((annotation) => drawAnnotation({ ...annotation, source: "assistant" }));
+    inkCache.paint(context, [state.annotations, state.assistantAnnotations, state.previewView],
+      window.innerWidth, window.innerHeight, Math.min(2, window.devicePixelRatio || 1), (target) => {
+        const visibleContext = context;
+        context = target;
+        try {
+          state.annotations.forEach(drawAnnotation);
+          if (state.previewView !== "original") {
+            state.assistantAnnotations.forEach((annotation) => drawAnnotation({ ...annotation, source: "assistant" }));
+          }
+        } finally { context = visibleContext; }
+      });
     if (state.draft?.type === "selection" && state.draft.dragging) {
       renderSelectionArea(selectionDraftArea(state.draft), true);
     } else if (state.draft && state.draft.type !== "eraser") {
@@ -1173,6 +1645,7 @@
     }
     renderTarget(state.selectedTarget);
     renderSelectionArea(state.areaSelection);
+    localMetrics.record("renderMs", performance.now() - startedAt);
   }
 
   function serializableAnnotation(annotation) {
@@ -1201,12 +1674,16 @@
   function addHistory() {
     state.history.push(state.annotations.map((item) => clonePlainData(item)));
     if (state.history.length > 30) state.history.shift();
+    state.redo = [];
   }
 
   function commit(annotation) {
+    const next = annotation?.points && (annotation.type === "pen" || annotation.type === "highlighter" || annotation.type === "handwriting")
+      ? { ...annotation, points: smoothStrokePoints(annotation.points) }
+      : annotation;
     addHistory();
-    state.annotations = [...state.annotations, annotation].slice(-MAX_ANNOTATIONS);
-    if (annotation.type === "handwriting") registerHandwritingStroke(annotation);
+    state.annotations = [...state.annotations, next].slice(-MAX_ANNOTATIONS);
+    if (next.type === "handwriting") registerHandwritingStroke(next);
     state.sequence += 1;
     render();
     schedulePublish();
@@ -1214,7 +1691,19 @@
 
   function undo() {
     if (!state.history.length) return;
+    state.redo.push(state.annotations.map((item) => clonePlainData(item)));
+    if (state.redo.length > 30) state.redo.shift();
     state.annotations = state.history.pop();
+    state.sequence += 1;
+    render();
+    schedulePublish();
+  }
+
+  function redo() {
+    if (!state.redo.length) return;
+    state.history.push(state.annotations.map((item) => clonePlainData(item)));
+    if (state.history.length > 30) state.history.shift();
+    state.annotations = state.redo.pop();
     state.sequence += 1;
     render();
     schedulePublish();
@@ -1231,15 +1720,18 @@
   }
 
   function clearUserTaskContext() {
+    selectionTracker.clear();
     if (drawingPointerId !== null && canvas.hasPointerCapture(drawingPointerId)) {
       canvas.releasePointerCapture(drawingPointerId);
     }
     drawingPointerId = null;
+    stylusDrawing = false;
     forceRestoreTemporaryPenModes();
     cancelCssDraft();
     cancelHandwritingDraft();
     state.annotations = [];
     state.history = [];
+    state.redo = [];
     state.draft = null;
     state.selectedElement = null;
     state.selectedTarget = null;
@@ -1273,16 +1765,7 @@
   }
 
   function describeAreaCandidate(element) {
-    const target = describeElement(element);
-    if (!target) return null;
-    return {
-      tagName: target.tagName,
-      id: target.id,
-      classes: target.classes,
-      role: target.role,
-      ariaLabel: target.ariaLabel,
-      rect: target.rect,
-    };
+    return describeElement(element);
   }
 
   function isEligibleHandwritingElement(element) {
@@ -1417,9 +1900,9 @@
       for (let row = 0; row < rows; row += 1) {
         const x = left + ((column + 0.5) / columns) * Math.max(1, right - left);
         const y = top + ((row + 0.5) / rows) * Math.max(1, bottom - top);
-        for (const element of document.elementsFromPoint(x, y).slice(0, 8)) {
+        for (const element of [deepestElementFromPoint(x, y)].filter(Boolean)) {
           addCandidate(element);
-          addCandidate(element.parentElement);
+          addCandidate(parentOf(element));
         }
       }
     }
@@ -1437,11 +1920,7 @@
   function chooseTarget(clientX, clientY) {
     cancelHandwritingDraft();
     cancelCssDraft();
-    const previous = canvas.style.pointerEvents;
-    canvas.style.pointerEvents = "none";
-    const candidate = document.elementsFromPoint(clientX, clientY)
-      .find((element) => element !== host && !element.closest?.("[data-vibink]"));
-    canvas.style.pointerEvents = previous;
+    const candidate = deepestElementFromPoint(clientX, clientY);
     const selectedArea = state.areaSelection?.rect;
     const clickedInsideSelectedArea = selectedArea
       && clientX >= selectedArea.x * window.innerWidth
@@ -1450,6 +1929,7 @@
       && clientY <= (selectedArea.y + selectedArea.height) * window.innerHeight;
     if (candidate === state.selectedElement || clickedInsideSelectedArea || (!candidate && (state.selectedTarget || state.areaSelection))) {
       state.selectedElement = null;
+      selectionTracker.clear();
       state.selectedTarget = null;
       state.areaSelection = null;
       state.sequence += 1;
@@ -1459,6 +1939,7 @@
       return;
     }
     state.selectedElement = candidate || null;
+    selectionTracker.select(state.selectedElement);
     state.selectedTarget = describeElement(candidate);
     state.areaSelection = null;
     state.sequence += 1;
@@ -1476,6 +1957,7 @@
   }
 
   function chooseArea(start, end) {
+    selectionTracker.clear();
     cancelHandwritingDraft();
     cancelCssDraft();
     const rect = {
@@ -1578,7 +2060,75 @@
     cssPanel.querySelector("[data-css-color]").value = draft.borderColor;
   }
 
+  function cssDraftDeltas() {
+    const draft = state.cssDraft;
+    if (!draft) return {};
+    const deltas = {};
+    for (const name of Object.keys(CSS_DRAFT_FIELDS)) {
+      if (draft.values[name] !== draft.initialValues[name]) {
+        deltas[name] = { from: draft.initialValues[name], to: draft.values[name] };
+      }
+    }
+    if (draft.borderColor !== draft.initialBorderColor) {
+      deltas.borderColor = { from: draft.initialBorderColor, to: draft.borderColor };
+    }
+    return deltas;
+  }
+
+  function serializeCssDraft() {
+    if (!state.cssDraft || !state.selectedTarget) return null;
+    const deltas = cssDraftDeltas();
+    const submitted = Boolean(state.cssDraftProposal);
+    return {
+      target: clonePlainData(state.selectedTarget),
+      values: {
+        ...state.cssDraft.values,
+        borderColor: state.cssDraft.borderColor,
+      },
+      cssDeltas: deltas,
+      status: submitted ? "submitted" : "previewing",
+      submitted,
+    };
+  }
+
+  function buildEditFocus() {
+    const css = serializeCssDraft();
+    const focusTarget = css?.target
+      || state.selectedTarget
+      || state.areaSelection?.candidates?.[0]
+      || null;
+    const kind = css
+      ? "css-draft"
+      : state.areaSelection
+        ? "area"
+        : state.selectedTarget
+          ? "component"
+          : "none";
+    return {
+      kind,
+      selector: focusTarget?.selector || "",
+      classHints: Array.isArray(focusTarget?.classHints)
+        ? focusTarget.classHints.slice(0, MAX_CLASS_HINTS)
+        : Array.isArray(focusTarget?.classes) ? focusTarget.classes.slice(0, MAX_CLASS_HINTS) : [],
+      parentPath: Array.isArray(focusTarget?.parentPath) ? focusTarget.parentPath.slice(0, MAX_PARENT_PATH) : [],
+      styles: focusTarget?.styles || null,
+      cssDeltas: css?.cssDeltas || {},
+      submitted: Boolean(css?.submitted),
+    };
+  }
+
+  function scheduleCssDraftPublish() {
+    clearTimeout(cssDraftPublishTimer);
+    cssDraftPublishTimer = setTimeout(() => {
+      cssDraftPublishTimer = null;
+      if (!state.enabled || !state.cssDraft) return;
+      state.sequence += 1;
+      void publishState(true);
+    }, CSS_DRAFT_PUBLISH_MS);
+  }
+
   function applyCssDraftPreview() {
+    state.previewView = "preview";
     const draft = state.cssDraft;
     const element = draft?.element;
     if (!(element instanceof Element) || !element.isConnected) {
@@ -1596,9 +2146,12 @@
     draft.lastWritten = captureInlineCss(element);
     refreshSelectedTarget();
     render();
+    updateReviewControls();
   }
 
   function cancelCssDraft({ publish = false } = {}) {
+    clearTimeout(cssDraftPublishTimer);
+    cssDraftPublishTimer = null;
     const draft = state.cssDraft;
     if (draft) restoreInlineCss(draft.element, draft.original, draft.lastWritten);
     state.cssDraft = null;
@@ -1648,6 +2201,7 @@
     draft.values[name] = Math.round(clamp(rawValue, meta.min, meta.max));
     syncCssDraftControls();
     applyCssDraftPreview();
+    scheduleCssDraftPublish();
   }
 
   function resetCssDraft() {
@@ -1785,21 +2339,43 @@
         canvas.releasePointerCapture(drawingPointerId);
       }
     } catch { /* The page may already have released the pointer. */ }
+    cancelStrokeRenderFrame();
     drawingPointerId = null;
+    stylusDrawing = false;
     state.draft = null;
     forceRestoreTemporaryPenModes(nextTool);
+    if (state.enabled) {
+      state.sequence += 1;
+      schedulePublish();
+    }
     render();
+    flushPendingViewportInvalidation();
+  }
+
+  function selectOverlayTool(tool) {
+    if (!TOOL_META[tool]) return;
+    if (tool !== "hand") stylusTool = tool;
+    cancelActivePointerGesture(tool);
+    state.sequence += 1;
+    showToast(TOOL_META[state.tool].label);
+    schedulePublish();
   }
 
   function beginPagePointerInteraction(event, detectTemporaryModes = true) {
     if (!event.isTrusted) return;
-    if (event.composedPath().includes(host)) return;
+    if (eventFromOverlayChrome(event)) return;
     updatePointerAffordance(event);
-    if (event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      suppressTouchDuringPenStroke(event);
+      return;
+    }
+    if (isCompatibilityMouse(event)) return;
     if (!state.enabled) return;
+    if (event.pointerType === "pen") registerStylusFromEvent(event);
     const temporaryEraser = detectTemporaryModes && enterTemporaryPenEraser(event);
     if (detectTemporaryModes && !temporaryEraser) enterTemporaryPenSelect(event);
-    if (state.tool === "hand") return;
+    const pointerTool = resolvePointerTool(event);
+    if (!pointerTool || pointerTool === "hand") return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     if ((temporarySelectTool || temporaryEraserTool) && !penTipIsDown(event)) {
       event.preventDefault();
@@ -1809,15 +2385,19 @@
     if (drawingPointerId !== null && drawingPointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    try { canvas.setPointerCapture(event.pointerId); } catch { /* Window capture remains active. */ }
+    if (event.pointerType === "pen") stylusDrawing = true;
     drawingPointerId = event.pointerId;
+    syncCanvasHitTesting();
+    try { canvas.setPointerCapture(event.pointerId); } catch { /* Window capture remains active. */ }
+    state.sequence += 1;
+    schedulePublish();
     const point = normalizedPoint(event);
-    if (state.tool === "eraser") {
+    if (pointerTool === "eraser") {
       state.draft = { type: "eraser", changed: false, historySaved: false };
       eraseUserAnnotationsAt(point);
       return;
     }
-    if (state.tool === "select") {
+    if (pointerTool === "select") {
       state.draft = {
         type: "selection",
         start: point,
@@ -1828,22 +2408,23 @@
       };
       return;
     }
-    if (state.tool === "text") {
+    if (pointerTool === "text") {
       openTextEditor(point);
       return;
     }
-    if (state.tool === "handwriting" && !handwritingPointIsEligible(point)) {
+    if (pointerTool === "handwriting" && !handwritingPointIsEligible(point)) {
       state.draft = null;
       drawingPointerId = null;
+      stylusDrawing = false;
       try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); } catch { /* No capture. */ }
       showToast("Select a non-sensitive text or search field, then begin Write inside its bounds.", 4200);
       return;
     }
-    if (state.tool === "pen" || state.tool === "handwriting" || state.tool === "highlighter") {
-      state.draft = { id: id(state.tool), type: state.tool, color: state.color, points: [point] };
+    if (pointerTool === "pen" || pointerTool === "handwriting" || pointerTool === "highlighter") {
+      state.draft = { id: id(pointerTool), type: pointerTool, color: state.color, points: [point] };
       return;
     }
-    state.draft = { id: id(state.tool), type: state.tool, color: state.color, start: point, end: point };
+    state.draft = { id: id(pointerTool), type: pointerTool, color: state.color, start: point, end: point };
   }
 
   window.addEventListener("pointerdown", (event) => {
@@ -1852,9 +2433,14 @@
 
   window.addEventListener("pointermove", (event) => {
     if (!event.isTrusted) return;
-    if (event.composedPath().includes(host) && drawingPointerId !== event.pointerId) return;
+    if (eventFromOverlayChrome(event) && drawingPointerId !== event.pointerId) return;
     updatePointerAffordance(event);
-    if (event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      suppressTouchDuringPenStroke(event);
+      return;
+    }
+    if (isCompatibilityMouse(event) && drawingPointerId !== event.pointerId) return;
+    if (event.pointerType === "pen") registerStylusFromEvent(event);
     if (event.pointerType === "pen" && drawingPointerId === event.pointerId) {
       if ((temporarySelectTool || temporaryEraserTool) && !penTipIsDown(event)) {
         const draft = state.draft;
@@ -1866,6 +2452,7 @@
         state.draft = null;
         try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); } catch { /* No capture. */ }
         drawingPointerId = null;
+        stylusDrawing = false;
         if (draft?.type === "selection") {
           if (dragged) chooseArea(draft.start, normalizedPoint(event));
           else chooseTarget(event.clientX, event.clientY);
@@ -1911,6 +2498,7 @@
         state.draft = null;
         try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); } catch { /* No capture. */ }
         drawingPointerId = null;
+        stylusDrawing = false;
         restoreTemporaryPenModes(event);
         if (changed) {
           state.sequence += 1;
@@ -1930,6 +2518,7 @@
         state.draft = null;
         try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); } catch { /* No capture. */ }
         drawingPointerId = null;
+        stylusDrawing = false;
         if (draft?.type === "selection") {
           if (dragged) chooseArea(draft.start, normalizedPoint(event));
           else chooseTarget(event.clientX, event.clientY);
@@ -1965,20 +2554,25 @@
     } else if (state.draft.type === "pen" || state.draft.type === "handwriting" || state.draft.type === "highlighter") {
       const coalesced = event.getCoalescedEvents?.() || [event];
       const points = coalesced.map(normalizedPoint);
-      state.draft.points = downsample([...state.draft.points, ...points]);
+      state.draft.points = appendStrokePoints(state.draft.points, points);
     } else {
       state.draft.end = point;
     }
-    render();
+    queueStrokeRender();
   }, true);
 
   window.addEventListener("pointerup", (event) => {
     if (!event.isTrusted) return;
-    if ((event.composedPath().includes(host) && drawingPointerId !== event.pointerId) || event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      suppressTouchDuringPenStroke(event);
+      return;
+    }
+    if (eventFromOverlayChrome(event) && drawingPointerId !== event.pointerId) return;
     if (drawingPointerId !== event.pointerId) {
       if (event.pointerType === "pen") {
         const wasBarrelSelection = temporarySelectPointerId === event.pointerId;
         restoreTemporaryPenModes(event);
+        markPenActivity();
         if (wasBarrelSelection) {
           armPenBarrelContextMenu(event, 900);
           event.preventDefault();
@@ -1987,10 +2581,17 @@
       }
       return;
     }
-    if (!state.draft && state.tool !== "text") {
+    cancelStrokeRenderFrame();
+    schedulePublish();
+    if (!state.draft && state.tool !== "text" && stylusTool !== "text") {
       try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); } catch { /* No capture. */ }
       if (drawingPointerId === event.pointerId) drawingPointerId = null;
+      if (event.pointerType === "pen") {
+        markPenActivity();
+        stylusDrawing = false;
+      }
       restoreTemporaryPenModes(event);
+      flushPendingViewportInvalidation();
       return;
     }
     event.preventDefault();
@@ -1999,6 +2600,10 @@
     state.draft = null;
     try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); } catch { /* No capture. */ }
     if (drawingPointerId === event.pointerId) drawingPointerId = null;
+    if (event.pointerType === "pen") {
+      markPenActivity();
+      stylusDrawing = false;
+    }
     if (draft?.type === "eraser") {
       if (draft.changed) {
         state.sequence += 1;
@@ -2006,44 +2611,74 @@
       }
       restoreTemporaryPenModes(event);
       render();
+      flushPendingViewportInvalidation();
       return;
     }
-    if (state.tool === "select") {
-      const dragged = draft?.dragging || (draft && Math.hypot(
+    if (draft?.type === "selection") {
+      const dragged = draft.dragging || Math.hypot(
         event.clientX - draft.startClientX,
         event.clientY - draft.startClientY,
-      ) >= SELECT_DRAG_THRESHOLD_PX);
+      ) >= SELECT_DRAG_THRESHOLD_PX;
       if (dragged) chooseArea(draft.start, normalizedPoint(event));
       else chooseTarget(event.clientX, event.clientY);
       if (temporarySelectTool) armPenBarrelContextMenu(event);
       restoreTemporaryPenModes(event);
+      flushPendingViewportInvalidation();
       return;
     }
     if (draft && draft.type !== "selection") commit(draft);
     else render();
+    restoreTemporaryPenModes(event);
+    flushPendingViewportInvalidation();
   }, true);
 
-  window.addEventListener("pointercancel", (event) => {
+  function interruptActiveStroke(event) {
     if (!event.isTrusted) return;
-    if (event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      suppressTouchDuringPenStroke(event);
+      return;
+    }
     if (drawingPointerId !== event.pointerId) {
       if (temporarySelectPointerId === event.pointerId || temporaryEraserPointerId === event.pointerId) {
         forceRestoreTemporaryPenModes();
       }
       return;
     }
-    const erasedAnnotations = state.draft?.type === "eraser" && state.draft.changed;
+    cancelStrokeRenderFrame();
+    schedulePublish();
+    const draft = state.draft;
     state.draft = null;
     try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); } catch { /* No capture. */ }
     if (drawingPointerId === event.pointerId) drawingPointerId = null;
-    if (erasedAnnotations) {
-      state.sequence += 1;
-      schedulePublish();
+    if (event.pointerType === "pen") {
+      markPenActivity();
+      stylusDrawing = false;
+    } else {
+      stylusDrawing = false;
+    }
+    if (draft?.type === "eraser") {
+      if (draft.changed) {
+        state.sequence += 1;
+        schedulePublish();
+      }
+    } else if (draft && draft.type !== "selection") {
+      commit(draft);
     }
     restoreTemporaryPenModes(event, true);
+    syncCanvasHitTesting();
     render();
+    flushPendingViewportInvalidation();
+  }
+
+  window.addEventListener("pointercancel", interruptActiveStroke, true);
+  canvas.addEventListener("lostpointercapture", interruptActiveStroke);
+  window.addEventListener("lostpointercapture", interruptActiveStroke, true);
+  window.addEventListener("pointerover", (event) => {
+    if (!event.isTrusted || event.pointerType !== "pen") return;
+    updatePointerAffordance(event);
   }, true);
   window.addEventListener("pointerleave", (event) => {
+    if (event.pointerType === "pen") markPenActivity();
     if (event.pointerType === "pen" && drawingPointerId === null) {
       penCursor.dataset.open = "false";
       if (temporarySelectPointerId === event.pointerId || temporaryEraserPointerId === event.pointerId) {
@@ -2052,7 +2687,13 @@
     }
   }, true);
   window.addEventListener("contextmenu", (event) => {
-    if (!event.isTrusted || Date.now() > penBarrelContextMenuUntil) return;
+    if (!event.isTrusted) return;
+    if (withinPenCompatibilityWindow() && event.pointerType !== "mouse") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (Date.now() > penBarrelContextMenuUntil) return;
     if (event.pointerType === "mouse" || (event.pointerType && event.pointerType !== "pen")) return;
     if (penBarrelContextMenuPoint && Math.hypot(
       event.clientX - penBarrelContextMenuPoint.x,
@@ -2063,6 +2704,11 @@
     penBarrelContextMenuUntil = 0;
     penBarrelContextMenuPoint = null;
   }, true);
+  for (const eventName of ["touchstart", "touchmove", "touchend", "touchcancel"]) {
+    window.addEventListener(eventName, (event) => {
+      suppressTouchDuringPenStroke(event);
+    }, { capture: true, passive: false });
+  }
 
   textEditor.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -2129,14 +2775,13 @@
 
   toolbar.querySelectorAll("[data-tool]").forEach((button) => {
     button.addEventListener("click", () => {
-      cancelActivePointerGesture(button.dataset.tool);
-      state.sequence += 1;
-      showToast(TOOL_META[state.tool].label);
-      schedulePublish();
+      selectOverlayTool(button.dataset.tool);
     });
   });
   colorInput.addEventListener("input", () => { state.color = colorInput.value; });
   toolbar.querySelector("[data-action='undo']").addEventListener("click", undo);
+  toolbar.querySelector("[data-action='redo']").addEventListener("click", redo);
+  toolbar.querySelector("[data-action='stylus']").addEventListener("click", toggleStylusEnabled);
   toolbar.querySelector("[data-action='clear']").addEventListener("click", clearAnnotations);
   infoButton.addEventListener("click", () => setFeedbackPanel(feedbackPanel.hidden));
   suggestButton.addEventListener("click", openProposalPanel);
@@ -2180,6 +2825,7 @@
     if (!state.cssDraft || !ASSISTANT_COLORS.includes(event.currentTarget.value)) return;
     state.cssDraft.borderColor = event.currentTarget.value;
     applyCssDraftPreview();
+    scheduleCssDraftPublish();
   });
   cssPanel.querySelector("[data-css-action='reset']").addEventListener("click", resetCssDraft);
   cssPanel.querySelector("[data-css-action='cancel']").addEventListener("click", () => cancelCssDraft({ publish: true }));
@@ -2314,22 +2960,37 @@
 
   function refreshSelectedTarget() {
     const previous = JSON.stringify(state.selectedTarget);
+    const resolved = selectionTracker.resolve();
+    state.selectionStatus = resolved.status;
+    if (["rebound", "reselect"].includes(resolved.status)) state.pendingSelectionInvalidation = true;
+    if (resolved.element !== state.selectedElement && state.cssDraft) cancelCssDraft();
+    state.selectedElement = resolved.element;
     if (!state.selectedElement?.isConnected) {
       if (state.cssDraft) cancelCssDraft();
       state.selectedElement = null;
       state.selectedTarget = null;
       if (previous !== "null") state.sequence += 1;
+      if (resolved.status === "reselect") showToast("The selected component changed. Please select it again.");
       return;
     }
     state.selectedTarget = describeElement(state.selectedElement);
     if (JSON.stringify(state.selectedTarget) !== previous) state.sequence += 1;
   }
 
-  function clearViewportBoundState() {
+  function clearViewportBoundState({ preserveSelection = false } = {}) {
+    state.pendingSelectionInvalidation = false;
+    inkCache.clear();
+    state.previewView = "preview";
+    state.ownerReviewIntent = null;
+    state.requestPreviewDraft = null;
+    if (state.request) state.request = { ...state.request, status: "context_changed", message: "Page context changed. Start a new request." };
+    if (!preserveSelection) selectionTracker.clear();
+    if (!state.enabled) { state.request = null; localMetrics.clear(); }
     if (drawingPointerId !== null && canvas.hasPointerCapture(drawingPointerId)) {
       canvas.releasePointerCapture(drawingPointerId);
     }
     drawingPointerId = null;
+    stylusDrawing = false;
     forceRestoreTemporaryPenModes();
     cancelCssDraft();
     cancelHandwritingDraft();
@@ -2340,9 +3001,11 @@
     clearActiveProposal();
     state.activeCompletionRequest = null;
     state.history = [];
+    state.redo = [];
     state.draft = null;
     state.selectedElement = null;
     state.selectedTarget = null;
+    if (preserveSelection) refreshSelectedTarget();
     state.areaSelection = null;
     state.completionAck = null;
     state.proposalResponse = null;
@@ -2363,10 +3026,10 @@
     updateFeedbackPanel();
   }
 
-  function advanceContext() {
+  function advanceContext(options) {
     state.contextRevision += 1;
     state.sequence += 1;
-    clearViewportBoundState();
+    clearViewportBoundState(options);
     render();
   }
 
@@ -2383,6 +3046,11 @@
   function pageState() {
     const route = refreshNavigationContext();
     refreshSelectedTarget();
+    const drawing = Boolean(drawingPointerId !== null || stylusDrawing);
+    if (drawing !== lastPublishedDrawing) {
+      lastPublishedDrawing = drawing;
+      state.sequence += 1;
+    }
     return {
       enabled: state.enabled,
       pageInstanceId: state.pageInstanceId,
@@ -2399,6 +3067,9 @@
         scrollY: Math.round(window.scrollY),
       },
       tool: state.tool === "hand" ? "interact" : state.tool,
+      stylusEnabled: Boolean(stylusEnabled),
+      stylusTool: stylusEnabled && STYLUS_TOOLS.has(stylusTool) ? stylusTool : "none",
+      drawing,
       selectionMode: state.areaSelection ? "area" : state.selectedTarget ? "component" : "none",
       target: state.selectedTarget,
       areaSelection: state.areaSelection,
@@ -2408,6 +3079,7 @@
       completionAck: state.completionAck,
       proposalResponse: state.proposalResponse,
       cssDraftProposal: state.cssDraftProposal,
+      ownerReviewIntent: state.ownerReviewIntent,
       handwritingDraft: state.handwritingDraft
         ? {
             draftId: state.handwritingDraft.draftId,
@@ -2418,6 +3090,8 @@
             recognition: "local-engine-unavailable",
           }
         : null,
+      cssDraft: serializeCssDraft(),
+      editFocus: buildEditFocus(),
       diagnosticsEnabled: state.diagnosticsEnabled,
       diagnostics: state.diagnosticsEnabled ? state.diagnostics.slice(-MAX_DIAGNOSTICS) : [],
       captureConsented: Boolean(state.captureDataUrl),
@@ -2431,6 +3105,7 @@
     if (!state.enabled && !immediate) return;
     const activationEpoch = state.activationEpoch;
     const probeRevision = ++bridgeProbeRevision;
+    const startedAt = performance.now();
     const result = await send({
       type: "VIBINK_BRIDGE_REQUEST",
       pageInstanceId: state.pageInstanceId,
@@ -2438,6 +3113,7 @@
       path: "/browser/state",
       options: { method: "POST", body: pageState(), timeoutMs: 3200 },
     });
+    localMetrics.record("publishMs", performance.now() - startedAt);
     if (!state.enabled || state.activationEpoch !== activationEpoch) return result;
     updateBridgeConnection(result.ok, probeRevision);
     return result;
@@ -2489,7 +3165,39 @@
       && Number(feedback.contextRevision) !== state.contextRevision
     ) return;
     if (feedback.route && feedback.route !== safeRoute()) return;
-    let hasNewFeedback = false;
+    const incomingRequest = feedback.request;
+    const requestChanged = Boolean(incomingRequest && (incomingRequest.requestId !== state.request?.requestId
+      || incomingRequest.status !== state.request?.status));
+    if (incomingRequest?.requestId) {
+      const replacementRequest = state.request?.requestId !== incomingRequest.requestId;
+      if (replacementRequest) {
+        state.ownerReviewIntent = null;
+        state.requestPreviewDraft = incomingRequest.basedOnSequence === state.sequence ? state.cssDraft : null;
+      }
+      if (state.request?.status !== incomingRequest.status) state.ownerReviewIntent = null;
+      if (incomingRequest.ownerReviewIntent?.intentId === state.ownerReviewIntent?.intentId
+        && incomingRequest.ownerReviewIntent?.acknowledgedAt) state.ownerReviewIntent = null;
+      const targetLabel = state.request?.requestId === incomingRequest.requestId ? state.request.targetLabel
+        : incomingRequest.basedOnSequence === state.sequence ? state.selectedTarget?.selector : "Request page context";
+      state.request = { ...incomingRequest, targetLabel: targetLabel || "Selected page context" };
+      if (replacementRequest) setReviewView("preview", { requestId: incomingRequest.requestId });
+    }
+    if (!incomingRequest && state.request && feedback.previousRequest?.requestId === state.request.requestId) {
+      const reason = feedback.previousRequest.invalidationReason;
+      state.request = { ...state.request, status: reason === "expired" ? "expired" : reason === "context_changed" ? "context_changed" : "superseded" };
+      state.ownerReviewIntent = null;
+      state.requestPreviewDraft = null;
+      state.assistantAnnotations = [];
+      state.assistantOverlays = [];
+      state.assistantMessage = "";
+      clearActiveProposal();
+      renderAssistantOverlays();
+      updateReviewControls();
+      render();
+      return;
+    }
+    if (state.request?.requestId && feedback.requestId !== state.request.requestId) return;
+    let hasNewFeedback = requestChanged;
     const completionRequest = normalizeCompletionRequest(feedback.completionRequest);
     if (completionRequest && completionRequest.id !== lastAppliedCompletionId) {
       if (completionRequest.basedOnSequence !== state.sequence) {
@@ -2551,11 +3259,12 @@
     const messages = Array.isArray(feedback.messages) ? feedback.messages : [];
     const last = messages[messages.length - 1];
     const message = redact(last?.text || feedback.message || "", 500);
-    if (message && message !== state.assistantMessage) hasNewFeedback = true;
+    const messageChanged = message !== state.assistantMessage;
+    if (message && messageChanged) hasNewFeedback = true;
     state.assistantMessage = message;
     if (message) {
       statusText.textContent = message;
-      showToast(message, 5000);
+      if (messageChanged) showToast(message, 5000);
     } else {
       statusText.textContent = DEFAULT_STATUS;
     }
@@ -2567,22 +3276,39 @@
   }
 
   async function pollFeedback() {
-    if (polling || !state.enabled) return;
+    clearTimeout(feedbackPollTimer);
+    if (polling || !state.enabled || !state.activationEpoch) return;
     polling = true;
     const activationEpoch = state.activationEpoch;
+    const contextRevision = state.contextRevision;
     const probeRevision = ++bridgeProbeRevision;
-    const result = await send({
-      type: "VIBINK_BRIDGE_REQUEST",
-      pageInstanceId: state.pageInstanceId,
-      activationEpoch,
-      path: "/feedback",
-      options: { method: "POST", body: {}, timeoutMs: 2200 },
-    });
-    polling = false;
+    let result;
+    try {
+      result = await send({
+        type: "VIBINK_BRIDGE_REQUEST",
+        pageInstanceId: state.pageInstanceId,
+        activationEpoch,
+        path: "/feedback",
+        options: {
+          method: "POST",
+          body: { afterFeedbackRevision: state.feedbackRevision, waitMs: 1500 },
+          timeoutMs: 2200,
+        },
+      });
+    } finally {
+      polling = false;
+      if (state.enabled) {
+        // Older bridges return immediately and need the original polling interval.
+        const delay = result?.ok && Number.isSafeInteger(result.feedbackRevision) ? 0 : 900;
+        feedbackPollTimer = setTimeout(() => { void pollFeedback(); }, delay);
+      }
+    }
     if (!state.enabled || state.activationEpoch !== activationEpoch) return;
     updateBridgeConnection(result.ok, probeRevision);
-    if (result.ok && Number(result.revision) !== state.feedbackRevision) {
-      state.feedbackRevision = Number(result.revision);
+    if (state.contextRevision !== contextRevision) return;
+    const incomingRevision = Number(result.feedbackRevision ?? result.revision);
+    if (result.ok && !result.unchanged && incomingRevision > state.feedbackRevision) {
+      state.feedbackRevision = incomingRevision;
       applyFeedback(result.feedback, true);
     }
   }
@@ -2644,10 +3370,16 @@
         await applyEnabled(false);
         throw new Error("The page removed or hid Vibink. Reload the page before reopening it.");
       }
+      overlayIntegrityFailures = 0;
+      lastViewportFingerprint = viewportFingerprint();
+      pendingViewportInvalidation = false;
       resizeCanvas();
+      updateToolUi();
       schedulePublish();
+      void pollFeedback();
       showToast("Vibink is live.");
     } else {
+      clearTimeout(feedbackPollTimer);
       stopDiagnostics("");
       clearViewportBoundState();
       render();
@@ -2718,12 +3450,19 @@
   let overlayShutdownPending = false;
 
   function scheduleOverlayIntegrityCheck() {
-    if (!state.enabled || overlayCheckQueued || overlayShutdownPending) return;
+    if (!state.enabled || overlayCheckQueued || overlayShutdownPending || drawingPointerId !== null) return;
     overlayCheckQueued = true;
     enqueueMicrotask(() => {
       overlayCheckQueued = false;
-      if (!state.enabled || overlayShutdownPending || overlayIsVisible()) return;
+      if (!state.enabled || overlayShutdownPending || drawingPointerId !== null) return;
+      if (overlayIsVisible()) {
+        overlayIntegrityFailures = 0;
+        return;
+      }
+      overlayIntegrityFailures += 1;
+      if (overlayIntegrityFailures < 2) return;
       overlayShutdownPending = true;
+      overlayIntegrityFailures = 0;
       void setEnabled(false)
         .finally(() => { overlayShutdownPending = false; });
     });
@@ -2743,16 +3482,49 @@
     attributeFilter: ["class", "hidden", "style"],
   });
 
+  function isDocumentScroller(target) {
+    return target === window
+      || target === document
+      || target === document.documentElement
+      || target === document.body;
+  }
+
+  function handleCapturedScroll(event) {
+    if (!state.enabled || eventFromOverlayChrome(event)) return;
+    if (drawingPointerId !== null) {
+      pendingViewportInvalidation = true;
+      return;
+    }
+    const target = event.target;
+    if (isDocumentScroller(target)) {
+      requestViewportInvalidation();
+      refreshSelectedTarget();
+      render();
+      return;
+    }
+    // Any inner scroller can move old marks onto different content.
+    advanceContext({ preserveSelection: true });
+    schedulePublish();
+  }
+
   window.addEventListener("resize", () => {
     resizeCanvas();
-    advanceContext();
-    schedulePublish();
+    requestViewportInvalidation();
   }, { passive: true });
-  window.addEventListener("scroll", () => {
-    advanceContext();
+  window.addEventListener("scroll", handleCapturedScroll, { capture: true, passive: true });
+  document.addEventListener("scroll", handleCapturedScroll, { capture: true, passive: true });
+  visualViewport?.addEventListener("resize", () => {
+    resizeCanvas();
+    requestViewportInvalidation();
+  }, { passive: true });
+  visualViewport?.addEventListener("scroll", () => {
+    if (drawingPointerId !== null) {
+      pendingViewportInvalidation = true;
+      return;
+    }
+    requestViewportInvalidation();
     refreshSelectedTarget();
     render();
-    schedulePublish();
   }, { passive: true });
   const handleNavigationChange = () => {
     const revision = state.contextRevision;
@@ -2767,20 +3539,42 @@
     if (event.key === "Escape" && textEditor.hidden) {
       cancelActivePointerGesture("hand");
     }
-    if (
-      state.tool !== "hand"
-      && !eventTargetsEditableControl(event)
-      && (event.ctrlKey || event.metaKey)
-      && event.key.toLowerCase() === "z"
-    ) {
+    if (eventTargetsEditableControl(event)) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      if (event.shiftKey) {
+        if (!state.redo.length) return;
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (!state.history.length) return;
       event.preventDefault();
       undo();
+      return;
     }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+      if (!state.redo.length) return;
+      event.preventDefault();
+      redo();
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.shiftKey && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      selectOverlayTool("highlighter");
+      return;
+    }
+    if (event.shiftKey) return;
+    const tool = TOOL_SHORTCUTS[event.key.toLowerCase()];
+    if (!tool) return;
+    event.preventDefault();
+    selectOverlayTool(tool);
   }, true);
 
   globalThis.__VIBINK__ = {
     toggle,
     disable: () => setEnabled(false),
+    getPerformance: () => localMetrics.snapshot(),
   };
 
   void chrome.storage.local.get(STORAGE_POSITION).then((stored) => {
@@ -2795,7 +3589,6 @@
   resizeCanvas();
   setInterval(() => {
     scheduleOverlayIntegrityCheck();
-    void pollFeedback();
   }, 900);
   setInterval(handleNavigationChange, 250);
   setInterval(() => {
@@ -2803,8 +3596,18 @@
     void publishState();
   }, 4000);
   setInterval(() => {
-    if (!state.enabled || reducedMotionQuery?.matches || (!state.selectedTarget && !state.areaSelection)) return;
-    selectionDashOffset = (selectionDashOffset - 1) % 20;
+    if (!state.enabled || (!state.selectedTarget && !state.areaSelection && !state.pendingSelectionInvalidation)) return;
+    if (drawingPointerId !== null) return;
+    if (!reducedMotionQuery?.matches) selectionDashOffset = (selectionDashOffset - 1) % 20;
+    const previous = state.selectedTarget?.rect;
+    refreshSelectedTarget();
+    if (state.pendingSelectionInvalidation
+      || (previous && JSON.stringify(previous) !== JSON.stringify(state.selectedTarget?.rect) && !state.cssDraft)) {
+      const selectionLost = !state.selectedTarget;
+      advanceContext({ preserveSelection: true });
+      if (selectionLost) showToast("The selected component changed. Please select it again.");
+      schedulePublish();
+    }
     render();
   }, 120);
 })();

@@ -7,6 +7,10 @@ const elements = {
   copyExtensionId: document.querySelector("#copy-extension-id"),
   disconnect: document.querySelector("#disconnect"),
   extensionId: document.querySelector("#extension-id"),
+  findTasks: document.querySelector("#find-tasks"),
+  localTask: document.querySelector("#local-task"),
+  localTaskLabel: document.querySelector("#local-task-label"),
+  taskHint: document.querySelector("#task-hint"),
   forgetOffline: document.querySelector("#forget-offline"),
   message: document.querySelector("#message"),
   pair: document.querySelector("#pair"),
@@ -39,13 +43,13 @@ const CONNECTION_COPY = Object.freeze({
     status: "PIN needed",
     kicker: "One tap",
     title: "Connect to this Codex task",
-    description: "PIN and BEAST address are already filled in. Tap Connect if it doesn’t pair on its own.",
+    description: "Choose a local task or enter its connection address, then press Connect.",
   }),
   offline: Object.freeze({
     status: "Codex not connected",
     kicker: "Start in Codex",
     title: "Codex could not be reached",
-    description: "Start the Codex task, then tap Connect. PIN is prefilled. If Codex showed a new port, update the address first.",
+    description: "Start your Codex task and use Find local Codex tasks. For another computer, enter the address from Codex.",
   }),
 });
 
@@ -183,18 +187,23 @@ async function saveBridgeAddress({ announce = true, permissionMode = "request" }
     );
     return false;
   }
-  const result = await send({ type: "VIBINK_CONFIGURE_BRIDGE", baseUrl: bridge.baseUrl });
+  const result = await send({ type: "VIBINK_CONFIGURE_BRIDGE", baseUrl: bridge.baseUrl, taskId: selectedTaskId });
   if (result.ok) elements.bridgeUrl.value = result.baseUrl || bridge.baseUrl;
   if (announce || !result.ok) setMessage(result.ok ? "Connection address saved." : result.error, !result.ok);
   return result.ok;
 }
 
-let autoPairAttempted = false;
+let selectedTaskId = null;
+let discoveredTasks = [];
+let selectionRevision = 0;
 
 async function refreshStatus() {
+  const checkingRevision = selectionRevision;
   renderConnectionState("checking");
   const result = await send({ type: "VIBINK_GET_STATUS" });
+  if (checkingRevision !== selectionRevision) return "ready";
   if (result.ok && result.config?.baseUrl) elements.bridgeUrl.value = result.config.baseUrl;
+  if (result.ok) selectedTaskId = result.config?.taskId || null;
   const state = connectionState(result);
   renderConnectionState(state, {
     active: result.active === true,
@@ -212,16 +221,50 @@ async function refreshStatus() {
   } else if (["action-error", "connection-error"].includes(elements.message.dataset.kind)) {
     setMessage("");
   }
-  if (
-    state === "ready"
-    && !autoPairAttempted
-    && /^[0-9]{4}$/.test(elements.pin.value.trim())
-  ) {
-    autoPairAttempted = true;
-    await connectWithPin({ announceInvalid: false, permissionMode: "existing" });
-  }
   return state;
 }
+
+elements.findTasks.addEventListener("click", async () => {
+  elements.findTasks.disabled = true;
+  try {
+    const result = await send({ type: "VIBINK_FIND_TASKS" });
+    discoveredTasks = result.ok && Array.isArray(result.tasks) ? result.tasks : [];
+    elements.localTask.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a task";
+    elements.localTask.append(placeholder);
+    for (const task of discoveredTasks) {
+      const option = document.createElement("option");
+      option.value = task.taskId;
+      option.textContent = task.label;
+      elements.localTask.append(option);
+    }
+    elements.localTask.hidden = discoveredTasks.length === 0;
+    elements.localTaskLabel.hidden = discoveredTasks.length === 0;
+    elements.taskHint.textContent = discoveredTasks.length
+      ? "Match the task label shown by Codex. Choose it, then press Connect."
+      : "No local tasks found. Start a fresh Codex task, or enter the address for another computer.";
+    if (!result.ok) setMessage(result.error || "Local tasks could not be found.", true);
+  } finally { elements.findTasks.disabled = false; }
+});
+
+elements.localTask.addEventListener("change", () => {
+  const task = discoveredTasks.find((candidate) => candidate.taskId === elements.localTask.value);
+  if (!task) return;
+  selectionRevision += 1;
+  selectedTaskId = task.taskId;
+  elements.bridgeUrl.value = task.baseUrl;
+  elements.pin.value = DEFAULT_PAIRING_PIN;
+  renderConnectionState("ready");
+  setMessage(`${task.label} selected. Connect will disconnect the previous task first.`);
+});
+
+elements.bridgeUrl.addEventListener("input", () => {
+  selectionRevision += 1;
+  selectedTaskId = null;
+  elements.localTask.value = "";
+});
 
 elements.extensionId.textContent = chrome.runtime.id;
 
@@ -302,6 +345,10 @@ async function connectWithPin({ announceInvalid = true, permissionMode = "reques
   }
   pairingInFlight = true;
   elements.pair.disabled = true;
+  elements.localTask.disabled = true;
+  elements.bridgeUrl.disabled = true;
+  elements.findTasks.disabled = true;
+  elements.saveUrl.disabled = true;
   try {
     if (!(await saveBridgeAddress({ announce: false, permissionMode }))) return;
     setMessage("Connecting…");
@@ -330,6 +377,10 @@ async function connectWithPin({ announceInvalid = true, permissionMode = "reques
   } finally {
     pairingInFlight = false;
     elements.pair.disabled = false;
+    elements.localTask.disabled = false;
+    elements.bridgeUrl.disabled = false;
+    elements.findTasks.disabled = false;
+    elements.saveUrl.disabled = false;
   }
 }
 

@@ -22,6 +22,7 @@ Vibink is designed to communicate visual intent without building a record of bro
 | Selected target metadata | When the user selects a target | Bounded, sanitized in-memory session | Local bridge; Codex only when explicitly read |
 | Area selection | Select drag/marquee | Bounded normalized geometry and at most 12 minimal candidates | Local bridge; Codex only when explicitly read |
 | CSS draft proposal | Owner explicitly sends a local preview | Bounded property deltas in current session | Paired task only; no source mutation |
+| Live CSS draft | Owner adjusts the CSS panel | Same bounded deltas, previewing until Send | Paired task only; no source mutation |
 | Handwriting draft metadata | Owner uses Write in an eligible selected field | Target, mode, status, and stroke count only | Local bridge; transcription text excluded |
 | Screenshot | Separate click on the capture control | Short-lived in bridge memory, then expired/cleared | Codex only when explicitly retrieved |
 | Diagnostics | Separate diagnostics opt-in | Bounded current session | Codex only when explicitly retrieved |

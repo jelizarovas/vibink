@@ -28,6 +28,13 @@
         <button id="toggle" class="primary" type="button" hidden>Open Vibink toolbar</button>
         <button id="disconnect" class="secondary disconnect" type="button" hidden>Disconnect from this task</button>
 
+        <div class="task-picker">
+          <button id="find-tasks" class="secondary" type="button">Find local Codex tasks</button>
+          <label for="local-task" id="local-task-label" hidden>Choose a task</label>
+          <select id="local-task" aria-describedby="task-hint" hidden></select>
+          <p id="task-hint" class="hint">Tasks on this computer appear here. Choose one, then press Connect.</p>
+        </div>
+
         <div id="connection-panel" class="connection-panel" hidden>
           <label for="bridge-url">Connection address from Codex</label>
           <div class="field-row">
@@ -42,7 +49,7 @@
               <input id="pairing-pin" type="text" inputmode="numeric" minlength="4" maxlength="4" pattern="[0-9]{4}" value="0000" placeholder="0000" aria-describedby="pin-hint" autocomplete="one-time-code" spellcheck="false">
               <button id="pair" class="primary compact" type="button">Connect</button>
             </div>
-            <p id="pin-hint" class="hint">Prefills 0000. Vibink pairs automatically when this address already has access; otherwise tap Connect once.</p>
+            <p id="pin-hint" class="hint">Use the PIN shown by your Codex task, then press Connect.</p>
           </div>
         </div>
 

@@ -73,7 +73,7 @@ test("content injection loads compatibility before the toolbar", async () => {
     readFile(new URL("../extension/content.js", import.meta.url), "utf8"),
   ]);
 
-  assert.match(background, /files: \["compat\.js", "lifecycle\.js", "content\.js"\]/);
+  assert.match(background, /files: \["compat\.js", "lifecycle\.js", "selection\.js", "performance\.js", "review\.js", "content\.js"\]/);
   assert.match(content, /const \{[\s\S]*randomUuid,[\s\S]*\} = globalThis\.__VIBINK_COMPAT__/);
   assert.doesNotMatch(content, /crypto\.randomUUID/);
   assert.doesNotMatch(content, /structuredClone|\.at\(-1\)|\bqueueMicrotask\(/);

@@ -20,7 +20,7 @@ test("the action is one-click only for a live paired idle session", async () => 
   assert.match(background, /if \(!\/\^https\?:\/i\.test\(target\.url \|\| ""\)\)/);
   assert.match(background, /await toggleTab\(target\)/);
   assert.match(background, /response = await chrome\.tabs\.sendMessage\(target\.id, \{ type: "VIBINK_TOGGLE" \}\)/);
-  assert.match(background, /files: \["compat\.js", "lifecycle\.js", "content\.js"\][\s\S]{0,160}response = await chrome\.tabs\.sendMessage/);
+  assert.match(background, /files: \["compat\.js", "lifecycle\.js", "selection\.js", "performance\.js", "review\.js", "content\.js"\][\s\S]{0,160}response = await chrome\.tabs\.sendMessage/);
   assert.match(background, /if \(!response\?\.ok\) throw new Error\(response\?\.error/);
   assert.match(background, /if \(!isActiveOwner\)/);
 });

@@ -12,8 +12,8 @@ test("popup presents one nontechnical next step for each connection state", asyn
   for (const copy of [
     "Open Vibink toolbar",
     "Hide Vibink toolbar",
-    "PIN and BEAST address are already filled in. Tap Connect if it doesn’t pair on its own.",
-    "Start the Codex task, then tap Connect. PIN is prefilled. If Codex showed a new port, update the address first.",
+    "Choose a local task or enter its connection address, then press Connect.",
+    "Start your Codex task and use Find local Codex tasks. For another computer, enter the address from Codex.",
     "Check again",
     "Disconnect from this task",
   ]) {
@@ -47,8 +47,10 @@ test("popup presents one nontechnical next step for each connection state", asyn
   assert.match(source, /\^\[0-9\]\{1,5\}\$[\s\S]*DEFAULT_BRIDGE_URL/);
   assert.match(html, /id="pairing-pin"[^>]*inputmode="numeric"[^>]*minlength="4"[^>]*maxlength="4"[^>]*pattern="\[0-9\]\{4\}"[^>]*value="0000"/);
   assert.match(source, /elements\.pin\.value = DEFAULT_PAIRING_PIN/);
-  assert.match(source, /autoPairAttempted/);
-  assert.match(source, /await connectWithPin\(\{ announceInvalid: false, permissionMode: "existing" \}\)/);
+  assert.doesNotMatch(source, /autoPairAttempted/);
+  assert.doesNotMatch(source, /await connectWithPin\(\{ announceInvalid: false, permissionMode: "existing" \}\)/);
+  assert.match(source, /type: "VIBINK_FIND_TASKS"/);
+  assert.match(source, /taskId: selectedTaskId/);
   assert.match(source, /if \(!\/\^\[0-9\]\{4\}\$\/\.test\(pin\)\)/);
   assert.match(
     source,

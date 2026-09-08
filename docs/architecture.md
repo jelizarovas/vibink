@@ -14,9 +14,9 @@ The Chrome extension owns the user gesture and page experience:
 
 - The toolbar action is the trust gate. A click grants temporary `activeTab` access to the selected tab.
 - The service worker uses `chrome.scripting` to inject the Vibink runtime only after that click.
-- The injected runtime renders an isolated vertical two-column toolbar for Interact, Select, Pen, Highlighter, Arrow, Rectangle, Ellipse, Text, Write, Ruler, and Eraser modes. Every control uses the same inline-SVG language and a visible label; the canonical product mark replaces the old text/avatar treatment.
-- Finger pointers pass through to the page. Pen and mouse may annotate; a pen barrel button temporarily enters Select, and a supported inverted/eraser signal temporarily erases user ink. Hardware without those events uses the labelled toolbar controls.
-- Vibink normalizes annotation coordinates against the current viewport and invalidates spatial context after navigation, resize, or scroll.
+- The injected runtime renders an isolated vertical two-column toolbar for Interact, Select, Pen, Highlighter, Arrow, Rectangle, Ellipse, Text, Write, Ruler, and Eraser modes. Every control uses the same inline-SVG language and a visible label. Default laptop chrome stays compact; Surface Hub / touch-only devices use larger targets under `(hover: none) and (pointer: coarse)`.
+- Finger pointers always pass through to the page unless the pen tip is down. After a pen is detected, the stylus keeps its own tool (cyan marker; **Stylus** toggles this off). Browsers emit a compatibility mouse after pen activity; Vibink ignores that echo for 900ms so hover and tool state do not flicker. The overlay canvas is a hit target only while the pen tip is down or the mouse is inking, so a hovering pen does not steal finger taps. Ink uses coalesced pointer events, a 0.75 CSS-pixel minimum point distance, and requestAnimationFrame stroke updates. A pen barrel button temporarily enters Select, and a supported inverted/eraser signal temporarily erases user ink. Hardware without those events uses the labelled toolbar controls. Keyboard shortcuts (V/H/P/E and others) switch tools; Ctrl+Z / Ctrl+Shift+Z undo and redo ink even while Interact is selected.
+- Vibink normalizes annotation coordinates against the current viewport and invalidates spatial context after navigation, resize, or scroll. An in-progress stroke is finished first; the wipe waits until the pointer is released if the viewport actually changed.
 - The service worker owns local-bridge transport so a hostile page cannot directly handle bridge credentials.
 - Browser storage is limited to non-sensitive preferences. Pairing/session material remains session-scoped.
 
@@ -35,7 +35,7 @@ The bridge is not a cloud service. It uses no Redis, Firebase, hosted database, 
 
 ### 3. Codex task
 
-The Vibink MCP tools are `vibink_connection_info`, `vibink_get_state`, `vibink_wait_for_update`, `vibink_send_message`, `vibink_draw`, `vibink_publish_proposal`, `vibink_complete_task`, `vibink_publish_overlay`, `vibink_clear_feedback`, `vibink_list_learnings`, and `vibink_record_learning`. They let the active Codex task read warm route/viewport/selection/annotation state, publish bounded feedback and one visual proposal, ask for explicit completion confirmation, retrieve consented captures, and use explicitly confirmed reusable learnings.
+The Vibink MCP tools are `vibink_connection_info`, `vibink_get_state`, `vibink_wait_for_update`, `vibink_send_message`, `vibink_draw`, `vibink_publish_proposal`, `vibink_complete_task`, `vibink_publish_overlay`, `vibink_clear_feedback`, `vibink_list_learnings`, and `vibink_record_learning`. They let the active Codex task read warm route/viewport/selection/`editFocus`/annotation state, publish bounded feedback and one visual proposal, ask for explicit completion confirmation, retrieve consented captures, and use explicitly confirmed reusable learnings. `vibink_get_state` is the sniper read: when `editFocus` names a component or CSS draft, the task should search those class hints, selector, and `testId` first rather than wandering the workspace. Warm state also reports `drawing`, `stylusEnabled`, and `stylusTool` so Interact plus an inking pen is not mistaken for an idle page.
 
 Voice remains native to Codex. Vibink never receives the audio stream or transcript. Source changes also remain a Codex workspace operation; the local bridge does not run arbitrary shell commands or accept executable page content.
 
@@ -92,7 +92,7 @@ If more than one Codex task is open, each task owns a separate bridge process. T
 
 ### Assistant feedback
 
-Feedback polling is authenticated and bound to the active browser session. `vibink_send_message` carries one concise suggestion, question, status, or warning of at most 500 characters.
+Feedback polling is authenticated and bound to the active browser session. A request can wait up to 1.5 seconds and wakes when assistant feedback changes; the extension immediately renews that wait. A separate feedback revision prevents browser updates from replaying messages or rebuilding image overlays. Unchanged responses omit the feedback payload, and authorization is checked again after each wait. Older bridges keep the 900 ms polling fallback. `vibink_send_message` carries one concise suggestion, question, status, or warning of at most 500 characters.
 
 `vibink_draw` publishes assistant-owned annotations separately from user ink. Supported feedback includes freehand pen, highlighter, laser, arrows, rectangles, ellipses/circles, ruler, and text; each annotation uses an opaque visible color from a fixed palette. Replacing or clearing assistant feedback never removes user marks.
 
@@ -126,9 +126,9 @@ The Vibink transport is local, but context explicitly retrieved into a Codex tas
 
 ## Canonical browser state
 
-Every browser update carries `sessionId`, semantic `sequence`, sanitized `pageUrl`/route, `contextRevision`, viewport, active tool, user annotations, component or area selection, completion/proposal responses, bounded CSS/handwriting-draft metadata, consent-gated diagnostics, and an optional explicitly captured `captureDataUrl`. A deliberate component tap or marquee increments the semantic sequence and publishes immediately. The four-second equal-sequence heartbeat refreshes readiness; selected target geometry/style changes detected at that time increment sequence before publication.
+Every browser update carries `sessionId`, semantic `sequence`, sanitized `pageUrl`/route, `contextRevision`, viewport, active tool, stylus tool/drawing flags, user annotations, component or area selection, an `editFocus` summary (selector, class hints including test ids, parent path, and CSS deltas), completion/proposal responses, bounded CSS/handwriting-draft metadata, consent-gated diagnostics, and an optional explicitly captured `captureDataUrl`. A deliberate component tap or marquee increments the semantic sequence and publishes immediately. Live CSS slider values stream as a previewing `cssDraft` after a short debounce; **Send proposal** marks that draft submitted. Neither grants source-edit authority. The four-second equal-sequence heartbeat refreshes readiness; selected target geometry/style changes detected at that time increment sequence before publication.
 
-The bridge rejects updates for the wrong session and older sequences. Equal-sequence heartbeats may refresh only freshness; semantic changes require a larger sequence and wake revision waiters. A page/context change clears spatial feedback, proposals, user draft context, and prior capture. Captures and PNG overlays expire after two minutes. State summaries omit overlay paths, base64 bytes, form values, and handwriting transcription text.
+The bridge rejects updates for the wrong session and older sequences. Equal-sequence heartbeats may refresh only freshness; semantic changes require a larger sequence and wake revision waiters. Starting or ending a drawing gesture advances that sequence, including cancellation and erasing without a hit. A page/context change clears prior spatial feedback, proposals, user draft context, and capture while preserving a fresh selection or draft supplied for the new context. Captures and PNG overlays expire after two minutes. State summaries omit overlay paths, base64 bytes, form values, and handwriting transcription text.
 
 ## Session lifecycle
 
@@ -146,7 +146,7 @@ The bridge rejects updates for the wrong session and older sequences. Equal-sequ
 
 - If injection is prohibited, show an unsupported-page message and do nothing else.
 - Before a public-ready build, replace the private demo's fixed `0000` PIN with a fresh short-lived code; never silently weaken the published authentication model.
-- If the bridge disconnects, preserve the web page and disable sharing until the user reconnects.
+- A failed bridge request stops diagnostics sharing immediately. Two consecutive failures show the disconnected warning; a successful request restores connection status. Older responses cannot override a newer completed request.
 - If an unreachable bridge leaves a local credential behind, expose a deliberate offline reset with a plain warning that remote revocation was not confirmed. Never use that reset while the bridge is reachable.
 - If capture or diagnostic consent is declined, continue with drawings and selection only.
 - If redaction or serialization fails, drop the affected payload rather than send raw data.

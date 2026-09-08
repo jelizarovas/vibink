@@ -76,9 +76,9 @@ Multiple open Codex tasks each start their own private bridge. The first normall
 3. Say **Connect Vibink**. Codex reports the exact local bridge endpoint; the private development demo uses PIN `0000`.
 4. Open the page you want to discuss. Codex may open the URL when browser control is available and you authorize it.
 5. Click the Vibink extension action. This is the required temporary `activeTab` access gesture; there is no safe URL flag that silently starts the extension.
-6. On first use or after disconnecting, confirm the bridge endpoint in the connection card. PIN `0000` is prefilled. Vibink connects automatically when the address already has access; otherwise choose **Connect** once.
+6. On first use or after disconnecting, confirm the bridge endpoint in the connection card. PIN `0000` is prefilled. Choose **Connect** explicitly. On the same computer, **Find local Codex tasks** lets you choose the label reported by Codex before connecting.
 7. After pairing, clicking Vibink while the toolbar is idle opens it directly. When the toolbar is already open on the current tab, the icon opens the management card; choose **Hide Vibink toolbar** to stay paired or **Disconnect from this task** to revoke the session.
-8. Use the vertical labelled toolbar. Select taps one component and drag-selects an area; a second tap on the same component or inside the active area deselects without removing ink. Pen, Highlight, Arrow, Shape, Circle, Text, Ruler, Write, and Eraser remain separate tools.
+8. Use the compact vertical labelled toolbar. Select taps one component and drag-selects an area; a second tap on the same component or inside the active area deselects without removing ink. Pen, Highlight, Arrow, Shape, Circle, Text, Ruler, Write, and Eraser remain separate tools. On a mouse laptop the toolbar stays dense; Surface Hub / touch-only screens keep the larger targets.
 9. Let Codex inspect Vibink state. Review and authorize source changes using the normal Codex workflow.
 10. Refresh and review. Codex may publish colored assistant marks or one adjustable visual proposal. Proposal approval confirms visual direction only. When Codex asks **Is this good enough?**, choose **Needs tweaks** to keep selection/ink or **Looks good** to clear the current user context while staying paired.
 
@@ -92,15 +92,16 @@ Codex may send a brief question, status, warning, or suggestion through `vibink_
 
 Codex can use `vibink_draw` for safe-palette pen, highlighter, arrow, circle/shape, ruler, and text callouts. These assistant marks are a separate layer: normal assistant replace/clear operations do not remove user ink. `vibink_publish_proposal` creates one five-minute translucent draft rectangle. The owner can drag, resize, relabel, approve, or reject it; no host DOM or source is changed. Info shows messages, proposal status, and the completion question without permanently covering the page.
 
-Vibink keeps sanitized route, viewport, component/area selection, user ink, and bounded draft metadata warm in the intended task's bridge. Selection updates publish immediately; the heartbeat keeps readiness fresh. Codex still has to call `vibink_get_state` or `vibink_wait_for_update`. This mechanism never captures page pixels.
+Vibink keeps sanitized route, viewport, component/area selection, an `editFocus` summary (selector, class hints including test ids, parent path, CSS deltas), stylus/drawing flags, user ink, and bounded draft metadata warm in the intended task's bridge. Selection updates publish immediately; CSS slider deltas follow after a short debounce; the heartbeat keeps readiness fresh. Codex still has to call `vibink_get_state` or `vibink_wait_for_update`. When `editFocus` names a component or CSS draft, the task should search those class hints first. This mechanism never captures page pixels.
 
 ### Input and draft controls
 
-- Finger input passes through to the page. Pen and mouse operate the selected Vibink tool.
+- Finger input reaches the page except while the pen tip is down. After a pen is detected, the stylus keeps its own tool so Interact can stay on mouse; use **Stylus** to turn that split off. Compatibility mouse events that follow a pen are ignored for 900ms.
+- Keyboard: V Select, H Interact, P Pen, Shift+P Highlight, E Eraser, plus A/S/O/T/W/R for the other tools. Ctrl+Z undoes ink and Ctrl+Shift+Z or Ctrl+Y redoes it, including while Interact is selected, unless a page field is focused.
 - On compatible pens, holding the barrel button temporarily enters Select; a tip tap selects one component and a tip drag creates the marquee. Releasing restores the earlier tool. Mouse context menus are not intercepted.
 - A recognized inverted/eraser end temporarily erases only user Vibink annotations. Use the labelled Eraser tool when hardware/browser eraser signals are unavailable.
 - Ruler draws in CSS pixels with 5 px ticks, 10 px major ticks, an arrow endpoint, `rem` from the root font, and `em` from the selected component font when available. It does not claim a physical-DPI measurement.
-- CSS opens a movable, touch-friendly, reversible preview for bounded padding, margin, radius, border, color, and gap values. Reset/Cancel restores properties Vibink still owns; Send proposal shares deltas but grants no code-change authority.
+- CSS opens a movable, touch-friendly, reversible preview for bounded padding, margin, radius, border, color, and gap values. Reset/Cancel restores properties Vibink still owns. Slider changes stream sanitized deltas into warm context; Send proposal marks the draft submitted. Neither grants code-change authority.
 - Write works only after selecting a non-sensitive text/search field and beginning ink inside it. No local handwriting engine ships in this dependency-free build, so Vibink keeps the ink, explains the limitation, and lets the owner enter/review the transcription locally, choose Append or Replace, and explicitly Apply text. Password, payment, authentication, contact, phone, numeric, and otherwise sensitive-looking inputs are refused; transcription text is never sent to the bridge. Failed or cancelled application keeps the ink.
 
 Toolbar pointer activation avoids focus changes and bubble-phase page events, preserving most application menus. Browser-native selects and applications that dismiss menus from document capture-phase listeners may still close before the isolated toolbar receives the event; Vibink does not bypass browser event security.
@@ -131,8 +132,8 @@ The development PC runs Codex, the source checkout, and the Vibink Bridge. The S
 3. Ask Codex for the exact LAN bridge endpoint. The current private development demo uses PIN `0000`.
 4. If Windows Firewall prompts for Node, allow only the **Private networks** profile.
 5. On the Surface Hub, open the web application you want to work on.
-6. Click Vibink. In the primary connection card, confirm the reported endpoint; PIN `0000` is prefilled. Choose **Connect** if it does not pair automatically.
-7. Use a finger to operate and scroll the page while a pen annotates or selects. Use Interact for mouse-driven page operation; supported barrel/eraser signals temporarily switch pen behavior without changing the chosen tool.
+6. Click Vibink. In the primary connection card, confirm the reported endpoint; PIN `0000` is prefilled. Choose **Connect** explicitly.
+7. Use a finger to operate and scroll the page while a pen annotates or selects. Leave Interact selected for mouse and touch; the pen keeps its own tool after it is detected. Supported barrel/eraser signals temporarily switch pen behavior without changing the mouse tool.
 8. Request screenshots or diagnostics only as one-off, visible actions when the structured selection and annotations are insufficient.
 9. **Looks good** clears task-specific user marks/selection but stays paired. When the task should lose access entirely, click Vibink and choose **Disconnect from this task**. The toolbar X only hides and is not Disconnect.
 
