@@ -1,0 +1,27 @@
+{
+  "name": "vibink",
+  "version": "2.0.1",
+  "description": "Use Vibink's local browser context and review workflow from Codex.",
+  "author": {
+    "name": "Vibink contributors"
+  },
+  "homepage": "https://jelizarovas.github.io/vibink/",
+  "repository": "https://github.com/jelizarovas/vibink",
+  "license": "MIT",
+  "keywords": ["codex", "browser", "visual-development", "local-first"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Vibink",
+    "shortDescription": "Use browser selections and ink in Codex",
+    "longDescription": "Vibink gives Codex bounded visual context from an intentionally activated Chrome tab, then keeps progress and review tied to the owner's current request.",
+    "developerName": "Vibink contributors",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://jelizarovas.github.io/vibink/",
+    "defaultPrompt": [
+      "Connect Vibink and use my current browser marks.",
+      "Read my Vibink selection and make the requested source change.",
+      "Show the finished change in Vibink for review."
+    ]
+  }
+}

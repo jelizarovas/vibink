@@ -6,7 +6,6 @@ const expectedPermissions = ["activeTab", "scripting", "storage"];
 const expectedHostPermissions = [
   "http://127.0.0.1/*",
   "http://localhost/*",
-  "http://192.168.0.9/*",
 ];
 const expectedOptionalHostPermissions = ["http://*/*"];
 const expectedWebAccessibleResources = [{
@@ -38,7 +37,7 @@ test("manifest and package verifier enforce the exact approved permission surfac
   const defaultHost = new URL(DEFAULT_BRIDGE_URL).hostname;
   assert.ok(
     manifest.host_permissions.some((pattern) => pattern.includes(defaultHost)),
-    "the default BEAST bridge host must be a built-in host permission so pairing works on first open",
+    "the loopback bridge hosts must be built-in permissions so pairing works on first open",
   );
   assert.match(
     verifierSource,

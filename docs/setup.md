@@ -65,18 +65,18 @@ Do not pass only the new ID: replacement intentionally rewrites Vibink's allowli
 
 `-AllowLan` is an explicit security choice. Use it only on the development host that must accept a browser outlet over a trusted private network. Never port-forward the bridge or allow Node on a Public Windows Firewall profile.
 
-After registration, restart Codex, open the target source repository, create a fresh task, and confirm `vibink` appears in `/mcp`. Ask the task to **Connect Vibink**; the MCP instructions make Codex call `vibink_connection_info` and report that task's exact endpoint. The current private development demo uses the prefilled PIN `0000`.
+After registration, restart Codex, open the target source repository, create a fresh task, and confirm `vibink` appears in `/mcp`. Ask the task to **Connect Vibink**; the MCP instructions make Codex call `vibink_connection_info` and report that task's exact endpoint and current six-digit PIN.
 
-Multiple open Codex tasks each start their own private bridge. The first normally uses the BEAST demo port `59645`; later tasks choose a private fallback port and report it through `vibink_connection_info`. Always use the address reported by the intended task rather than guessing or scanning ports.
+Multiple open Codex tasks each start their own private bridge. The first normally uses port `59645`; later tasks choose a private fallback port and report it through `vibink_connection_info`. Always use the address reported by the intended task rather than guessing or scanning ports.
 
 ## Use Vibink on the development PC
 
 1. Open Codex in the source repository you intend to change and start a fresh task.
 2. Start the development server yourself, or explicitly ask Codex to start it, keep its terminal attached, monitor its output, and report the URL after readiness. The target repository's instructions still control whether Codex may run that server.
-3. Say **Connect Vibink**. Codex reports the exact local bridge endpoint; the private development demo uses PIN `0000`.
+3. Say **Connect Vibink**. Codex reports the exact local bridge endpoint and current six-digit PIN.
 4. Open the page you want to discuss. Codex may open the URL when browser control is available and you authorize it.
 5. Click the Vibink extension action. This is the required temporary `activeTab` access gesture; there is no safe URL flag that silently starts the extension.
-6. On first use or after disconnecting, confirm the bridge endpoint in the connection card. PIN `0000` is prefilled. Choose **Connect** explicitly. On the same computer, **Find local Codex tasks** lets you choose the label reported by Codex before connecting.
+6. On first use or after disconnecting, confirm the bridge endpoint in the connection card, enter the PIN from Codex, and choose **Connect** explicitly. On the same computer, **Find local Codex tasks** lets you choose the label reported by Codex before connecting.
 7. After pairing, clicking Vibink while the toolbar is idle opens it directly. When the toolbar is already open on the current tab, the icon opens the management card; choose **Hide Vibink toolbar** to stay paired or **Disconnect from this task** to revoke the session.
 8. Use the compact vertical labelled toolbar. Select taps one component and drag-selects an area; a second tap on the same component or inside the active area deselects without removing ink. Pen, Highlight, Arrow, Shape, Circle, Text, Ruler, Write, and Eraser remain separate tools. On a mouse laptop the toolbar stays dense; Surface Hub / touch-only screens keep the larger targets.
 9. Let Codex inspect Vibink state. Review and authorize source changes using the normal Codex workflow.
@@ -129,15 +129,15 @@ The development PC runs Codex, the source checkout, and the Vibink Bridge. The S
 
 1. Put the development PC and Surface Hub on the same trusted private network.
 2. Start a fresh native Codex Voice task in the source project you want to change and confirm `vibink` in `/mcp`.
-3. Ask Codex for the exact LAN bridge endpoint. The current private development demo uses PIN `0000`.
+3. Ask Codex for the exact LAN bridge endpoint and current six-digit PIN.
 4. If Windows Firewall prompts for Node, allow only the **Private networks** profile.
 5. On the Surface Hub, open the web application you want to work on.
-6. Click Vibink. In the primary connection card, confirm the reported endpoint; PIN `0000` is prefilled. Choose **Connect** explicitly.
+6. Click Vibink. In the primary connection card, confirm the reported endpoint, enter the PIN from Codex, and choose **Connect** explicitly.
 7. Use a finger to operate and scroll the page while a pen annotates or selects. Leave Interact selected for mouse and touch; the pen keeps its own tool after it is detected. Supported barrel/eraser signals temporarily switch pen behavior without changing the mouse tool.
 8. Request screenshots or diagnostics only as one-off, visible actions when the structured selection and annotations are insufficient.
 9. **Looks good** clears task-specific user marks/selection but stays paired. When the task should lose access entirely, click Vibink and choose **Disconnect from this task**. The toolbar X only hides and is not Disconnect.
 
-Use the PC's numeric private IPv4 address, not `localhost`, from the Surface Hub. The current private development demo keeps PIN `0000`; use the exact port reported by the intended Codex task.
+Use the PC's numeric private IPv4 address, not `localhost`, from the Surface Hub. Use the exact port and current PIN reported by the intended Codex task.
 
 ## Diagnostics consent
 
@@ -175,7 +175,7 @@ For an authorized workflow publication, the package job records the exact tagged
 - **The icon shows `!`:** click it to open recovery. Confirm the displayed bridge address matches the endpoint from the intended Codex task, then retry or use the explicit offline reset only when that bridge is truly gone.
 - **The Hub cannot reach the bridge:** use the exact numeric private IP and reported port, confirm both devices are on the same private network, and allow Node on the Private firewall profile only.
 - **The popup says the Codex task is using an older bridge:** replacing or reloading the extension does not restart an already-open task's bridge process. Start a fresh Codex task, ask it to **Connect Vibink**, and use that task's newly reported address and PIN.
-- **Pairing fails:** confirm the task is fresh enough to include this release, use PIN `0000`, and verify that the popup address exactly matches that task's reported port.
+- **Pairing fails:** ask Codex for a fresh connection code, enter the current six-digit PIN before it expires, and verify that the popup address exactly matches that task's reported port.
 - **The overlay cannot control the page:** switch back to Interact mode, then reload and click Vibink again if the page navigated.
 - **No diagnostics appear:** diagnostics are off by default; explicitly consent for this session, and remember that only bounded sanitized categories are eligible.
 - **Capture was discarded:** return to the intended visible tab and press Capture again without switching tabs or changing page context during the one-frame capture.

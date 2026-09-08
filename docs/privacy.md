@@ -74,7 +74,7 @@ This boundary is especially important for screenshots. A capture held in bridge 
 
 - The bridge listens on loopback unless LAN mode is explicitly enabled.
 - LAN mode is for a trusted private network, such as a development PC paired with a Surface Hub.
-- The current private development demo deliberately uses fixed PIN `0000`; a public-ready build restores a short-lived rotating code. The resulting opaque session credential remains expiring and session-scoped.
+- Pairing uses a random six-digit PIN that expires after five minutes and rotates after a successful connection. The resulting opaque session credential remains expiring and session-scoped.
 - Credentials are kept out of logs and durable browser storage and are discarded on expiry or shutdown.
 - The bridge must never be publicly exposed, port-forwarded, or placed behind a public tunnel.
 

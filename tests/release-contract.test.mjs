@@ -19,6 +19,14 @@ test("release preparation runs tests between static checks and build", async () 
   assert.ok(testIndex < buildIndex, "npm test must run before the build");
 });
 
+test("release preparation keeps the Codex plugin version synchronized", async () => {
+  const source = await readFile(join(projectRoot, "scripts", "release.mjs"), "utf8");
+  assert.match(source, /pluginManifestPath/);
+  assert.match(source, /pluginManifest\.version !== currentVersion/);
+  assert.match(source, /pluginManifest\.version = newVersion/);
+  assert.match(source, /writeJson\(pluginManifestPath, pluginManifest\)/);
+});
+
 test("local publishing refreshes and rechecks remote provenance around packaging", async () => {
   const source = await readFile(join(projectRoot, "scripts", "release.mjs"), "utf8");
   const publishFunction = source.slice(

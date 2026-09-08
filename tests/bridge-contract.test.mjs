@@ -13,7 +13,6 @@ import {
   normalizeExtensionIds,
   normalizePairingPin,
   normalizeRemoteAddress,
-  PAIRING_PIN,
   sanitizeAnnotationForBridge,
   sanitizeAreaSelectionForBridge,
   sanitizeCompletionAckForBridge,
@@ -41,10 +40,10 @@ const EXPECTED_TOOLS = [
   "vibink_record_learning",
 ];
 
-test("extension and bridge share the same development connection defaults", async () => {
+test("the extension defaults to the loopback bridge with no stored pairing PIN", async () => {
   const { DEFAULT_BRIDGE_URL, DEFAULT_PAIRING_PIN } = await import("../extension/config.js");
-  assert.equal(DEFAULT_PAIRING_PIN, PAIRING_PIN);
-  assert.equal(PAIRING_PIN, "0000");
+  assert.equal(DEFAULT_PAIRING_PIN, "");
+  assert.equal(new URL(DEFAULT_BRIDGE_URL).hostname, "127.0.0.1");
   assert.equal(Number(new URL(DEFAULT_BRIDGE_URL).port), DEFAULT_BRIDGE_PORT);
   assert.equal(DEFAULT_BRIDGE_PORT, 59645);
 });
@@ -57,16 +56,16 @@ test("the bridge preserves explicit port overrides and private fallback reportin
   assert.match(source, /usedFallbackPort: activePort !== PORT/);
 });
 
-test("pairing uses the fixed development PIN", () => {
+test("pairing uses random six-digit codes with a five-minute expiry", () => {
   const earliestExpectedExpiry = Date.now() + 5 * 60 * 1000 - 1000;
   for (let index = 0; index < 20; index += 1) {
     const pairing = createPairingCode();
-    assert.equal(pairing.code, PAIRING_PIN);
+    assert.match(pairing.code, /^[0-9]{6}$/);
     assert.equal(pairing.expiresAt >= earliestExpectedExpiry, true);
   }
-  assert.equal(normalizePairingPin(" 0000 "), "0000");
-  assert.equal(normalizePairingPin(" 0123 "), "0123");
-  for (const invalid of ["123", "12345", "12A4", "ABCD-2345", "", null]) {
+  assert.equal(normalizePairingPin(" 000000 "), "000000");
+  assert.equal(normalizePairingPin(" 012345 "), "012345");
+  for (const invalid of ["123", "12345", "1234567", "12A456", "ABCD-2345", "", null]) {
     assert.equal(normalizePairingPin(invalid), null);
   }
 });
@@ -164,7 +163,9 @@ test("the bridge source binds HTTP to the explicit extension-origin allowlist", 
   assert.match(source, /ALLOWED_EXTENSION_ORIGINS\.has\(origin\)/);
   assert.match(source, /configuredExtensionOriginCount/);
   assert.match(source, /const activePairing = pairingForPresentation\(\)/);
-  assert.match(source, /if \(!pairingPresented \|\| pairing\.expiresAt <= Date\.now\(\)\) rotatePairingCode\(\)/);
+  assert.match(source, /function pairingForPresentation\(\) \{\s+return currentPairing\(\);/);
+  assert.match(source, /while \(pairing\.code === previousCode\)/);
+  assert.doesNotMatch(source, /pairAttempts\.clear\(\)/);
   assert.doesNotMatch(source, /pairing\.expiresAt - Date\.now\(\) < 60_000/);
   assert.match(source, /recordPairFailure\(remoteAddress\)/);
   assert.match(source, /pairAttempts\.delete\(remoteAddress\)/);
@@ -199,6 +200,12 @@ test("the bridge source binds HTTP to the explicit extension-origin allowlist", 
   assert.match(source, /const sameActivation = samePageInstance && browserState\.activationEpoch === activationEpoch/);
   assert.match(source, /capture: sameActivation \? browserState\.capture : null/);
   assert.match(source, /browserState\.activationEpoch !== next\.activationEpoch/);
+  assert.match(source, /httpServer\.requestTimeout = 15_000/);
+  assert.match(source, /httpServer\.headersTimeout = 5_000/);
+  assert.match(source, /httpServer\.keepAliveTimeout = 5_000/);
+  assert.match(source, /httpServer\.maxRequestsPerSocket = 100/);
+  assert.match(source, /httpServer\.maxConnections = 40/);
+  assert.match(source, /httpServer\.setTimeout\(15_000, \(socket\) => socket\.destroy\(\)\)/);
 });
 
 test("extension identity configuration is normalized, deduplicated, and fail-closed", () => {
@@ -236,8 +243,8 @@ test("session address binding treats loopback forms as the same client", () => {
   assert.equal(normalizeRemoteAddress("127.0.0.1"), "127.0.0.1");
   assert.equal(normalizeRemoteAddress("::1"), "127.0.0.1");
   assert.equal(normalizeRemoteAddress("::ffff:127.0.0.1"), "127.0.0.1");
-  assert.equal(normalizeRemoteAddress("::ffff:192.168.0.9"), "192.168.0.9");
-  assert.equal(normalizeRemoteAddress("192.168.0.9"), "192.168.0.9");
+  assert.equal(normalizeRemoteAddress("::ffff:192.168.50.20"), "192.168.50.20");
+  assert.equal(normalizeRemoteAddress("192.168.50.20"), "192.168.50.20");
 });
 
 test("page URLs omit query, fragment, credentials, and long record identifiers", () => {

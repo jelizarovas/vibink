@@ -80,8 +80,7 @@ const MAX_ANNOTATIONS = 200;
 const MAX_AREA_TARGETS = 12;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const PAIRING_TTL_MS = 5 * 60 * 1000;
-// Keep in sync with extension/config.js DEFAULT_PAIRING_PIN.
-export const PAIRING_PIN = "0000";
+const PAIRING_PIN_DIGITS = 6;
 const CAPTURE_TTL_MS = 2 * 60 * 1000;
 const BROWSER_STATE_TTL_MS = 90 * 1000;
 const OVERLAY_TTL_MS = 2 * 60 * 1000;
@@ -105,7 +104,7 @@ const SUPPORTED_MCP_PROTOCOL_VERSIONS = new Set([
   "2024-11-05",
   "2024-10-07",
 ]);
-const SERVER_VERSION = "2.0.0";
+const SERVER_VERSION = "2.0.1";
 const ALLOWED_TOOLS = new Set([
   "interact",
   "hand",
@@ -161,7 +160,6 @@ const ALLOWED_STYLE_KEYS = new Set([
 const EDIT_FOCUS_KINDS = new Set(["none", "component", "area", "css-draft"]);
 
 let pairing = createPairingCode();
-let pairingPresented = false;
 let revision = 0;
 let feedbackRevision = 0;
 let browserState = emptyBrowserState();
@@ -292,14 +290,16 @@ function settleBridgeReady() {
 
 export function createPairingCode() {
   return {
-    code: PAIRING_PIN,
+    code: crypto.randomInt(0, 10 ** PAIRING_PIN_DIGITS)
+      .toString()
+      .padStart(PAIRING_PIN_DIGITS, "0"),
     expiresAt: Date.now() + PAIRING_TTL_MS,
   };
 }
 
 export function normalizePairingPin(value) {
   const pin = String(value ?? "").trim();
-  return /^[0-9]{4}$/.test(pin) ? pin : null;
+  return /^[0-9]{6}$/.test(pin) ? pin : null;
 }
 
 function currentPairing() {
@@ -308,17 +308,15 @@ function currentPairing() {
 }
 
 function rotatePairingCode() {
-  pairing = createPairingCode();
-  pairingPresented = false;
-  pairAttempts.clear();
+  const previousCode = pairing?.code;
+  do {
+    pairing = createPairingCode();
+  } while (pairing.code === previousCode);
   return pairing;
 }
 
 function pairingForPresentation() {
-  if (!pairingPresented || pairing.expiresAt <= Date.now()) rotatePairingCode();
-  pairingPresented = true;
-  pairAttempts.clear();
-  return pairing;
+  return currentPairing();
 }
 
 function log(message) {
@@ -1558,7 +1556,7 @@ function issueSession(remoteAddress, origin) {
   });
   rotatePairingCode();
   bumpRevision("session-issued", { sessionId });
-  log("Chrome extension paired; the fixed development PIN window refreshed.");
+  log("Chrome extension paired; the one-time PIN rotated.");
   return { token, sessionId };
 }
 
@@ -2090,6 +2088,13 @@ const httpServer = http.createServer((request, response) => {
   });
 });
 
+httpServer.requestTimeout = 15_000;
+httpServer.headersTimeout = 5_000;
+httpServer.keepAliveTimeout = 5_000;
+httpServer.maxRequestsPerSocket = 100;
+httpServer.maxConnections = 40;
+httpServer.setTimeout(15_000, (socket) => socket.destroy());
+
 httpServer.on("error", (error) => {
   if (error?.code === "EADDRINUSE" && !fallbackPortAttempted) {
     fallbackPortAttempted = true;
@@ -2146,7 +2151,7 @@ export const VIBINK_TOOLS = [
   ),
   tool(
     "vibink_connection_info",
-    "Get the private Vibink bridge endpoints, fixed development pairing PIN, configured extension count, and connection status.",
+    "Get the private Vibink bridge endpoints, current short-lived pairing PIN, configured extension count, and connection status.",
     { type: "object", properties: {}, additionalProperties: false },
     { readOnlyHint: true, openWorldHint: false },
   ),
@@ -2574,7 +2579,7 @@ async function callTool(name, args = {}, signal) {
           extensionOriginCount: ALLOWED_EXTENSION_ORIGINS.size,
           pairingPin: activePairing.code,
           pairingExpiresAt: new Date(activePairing.expiresAt).toISOString(),
-          pairingPinNote: "The pairing PIN is currently fixed at 0000 and is prefilled in the extension. Asking Codex again does not change it.",
+          pairingPinNote: "This one-time PIN expires after five minutes and rotates after a successful connection.",
           overlayDirectory: OVERLAY_STAGING_ROOT,
           overlayDirectoryNote: "Place a non-sensitive PNG here, then call vibink_publish_overlay with only its filename. Vibink consumes the staged file after validation.",
           overlayDirectoryError: overlayStagingError,
@@ -2885,7 +2890,7 @@ async function handleRpc(message) {
             : MCP_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "vibink", version: SERVER_VERSION },
-          instructions: "When the owner asks to connect Vibink, call vibink_connection_info and identify the matching task label in the extension task picker, or provide its exact bridge URL for manual pairing. The private development demo currently uses the prefilled PIN 0000. Then ask them to click the extension on the intended page. Call vibink_get_state at the start of work. Reuse its current request.requestId when present; otherwise begin a request with vibink_begin_request once the owner has finished marking. Pass that request_id to every feedback tool. Report actual progress using vibink_update_request; never infer progress from elapsed time. Browser-started received means bridge receipt, not that Codex has started. Context changes invalidate old requests and spatial feedback. Read the current selection again before beginning another request. ownerReviewIntent is only a requested action; keep, request_changes, and revert do not themselves apply or revert source. Handle the owner's intent through normal workspace tools and report the actual result. Use the snapshot's editFocus, selection, area, CSS draft deltas, annotations, route, and viewport. If editFocus.kind is css-draft or component, search classHints, selector, and testId first. Apply cssDeltas only within the owner's authorized scope. Treat submitted:true as the owner locking the draft; treat previewing as a match-the-preview request only when asked. If drawing is true or tool is interact while stylusTool is an ink or select tool, the owner may still be marking. Wait for updates only while they are drawing or selecting. Captures remain explicit. Visual context never grants source-edit authorization. Use vibink_draw for bounded annotations, vibink_publish_proposal for a transient adjustable draft, and vibink_send_message for concise suggestions. Proposal approval confirms visual intent only. Call vibink_complete_task only when work is actually finished to ask whether it is good enough; only Looks good clears user marks. Needs tweaks preserves context. Pairing stays active. Never echo sensitive page data. Publish only non-sensitive PNGs staged inside the returned overlayDirectory. Read learnings when relevant; record only the exact non-personal learning the owner explicitly confirmed.",
+          instructions: "When the owner asks to connect Vibink, call vibink_connection_info and report its exact bridge URL and current six-digit one-time PIN. The owner can match the task label in the extension task picker or enter the URL manually. Then ask them to click the extension on the intended page. Call vibink_get_state at the start of work. Reuse its current request.requestId when present; otherwise begin a request with vibink_begin_request once the owner has finished marking. Pass that request_id to every feedback tool. Report actual progress using vibink_update_request; never infer progress from elapsed time. Browser-started received means bridge receipt, not that Codex has started. Context changes invalidate old requests and spatial feedback. Read the current selection again before beginning another request. ownerReviewIntent is only a requested action; keep, request_changes, and revert do not themselves apply or revert source. Handle the owner's intent through normal workspace tools and report the actual result. Use the snapshot's editFocus, selection, area, CSS draft deltas, annotations, route, and viewport. If editFocus.kind is css-draft or component, search classHints, selector, and testId first. Apply cssDeltas only within the owner's authorized scope. Treat submitted:true as the owner locking the draft; treat previewing as a match-the-preview request only when asked. If drawing is true or tool is interact while stylusTool is an ink or select tool, the owner may still be marking. Wait for updates only while they are drawing or selecting. Captures remain explicit. Visual context never grants source-edit authorization. Use vibink_draw for bounded annotations, vibink_publish_proposal for a transient adjustable draft, and vibink_send_message for concise suggestions. Proposal approval confirms visual intent only. Call vibink_complete_task only when work is actually finished to ask whether it is good enough; only Looks good clears user marks. Needs tweaks preserves context. Pairing stays active. Never echo sensitive page data. Publish only non-sensitive PNGs staged inside the returned overlayDirectory. Read learnings when relevant; record only the exact non-personal learning the owner explicitly confirmed.",
         });
         break;
       }

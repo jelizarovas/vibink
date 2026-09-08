@@ -97,7 +97,7 @@ function renderConnectionState(state, {
   if (
     !elements.pairingPanel.hidden
     && document.activeElement !== elements.bridgeUrl
-    && elements.pin.value.length !== 4
+    && elements.pin.value.length !== 6
   ) {
     elements.pin.focus();
   }
@@ -339,8 +339,8 @@ let pairingInFlight = false;
 async function connectWithPin({ announceInvalid = true, permissionMode = "request" } = {}) {
   const pin = elements.pin.value.trim();
   if (pairingInFlight) return;
-  if (!/^[0-9]{4}$/.test(pin)) {
-    if (announceInvalid) setMessage("Enter the four-digit PIN from Codex.", true);
+  if (!/^[0-9]{6}$/.test(pin)) {
+    if (announceInvalid) setMessage("Enter the six-digit PIN from Codex.", true);
     return;
   }
   pairingInFlight = true;
@@ -389,7 +389,7 @@ elements.pair.addEventListener("click", () => {
 });
 
 elements.pin.addEventListener("input", () => {
-  elements.pin.value = elements.pin.value.replace(/[^0-9]/g, "").slice(0, 4);
+  elements.pin.value = elements.pin.value.replace(/[^0-9]/g, "").slice(0, 6);
 });
 
 elements.pin.addEventListener("keydown", (event) => {

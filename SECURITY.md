@@ -8,7 +8,7 @@ Vibink is currently pre-release. Security fixes are made on the latest `main` br
 
 ## Reporting a vulnerability
 
-Use the repository's private **Security** tab to submit a GitHub Security Advisory. Include:
+Use GitHub private vulnerability reporting in the repository's **Security** tab. Include:
 
 - the affected Vibink version or commit;
 - the browser and operating system;
@@ -26,7 +26,8 @@ Do not open a public issue for an unpatched vulnerability. Do not include real c
 - Clicking the capture control is explicit consent for one current-visible-tab capture; there is no second capture prompt. Diagnostics sharing requires a separate, explicit session opt-in. Neither may start merely because the overlay is visible.
 - The bridge binds to loopback unless the owner explicitly starts it with `--allow-lan`.
 - LAN mode accepts trusted private-network peers only. The bridge must never be port-forwarded or exposed to the public internet.
-- The current private demo's explicitly temporary `0000` PIN is address/origin gated and rate-limited; it must be replaced with a short-lived rotating code before public release. Session tokens remain opaque, expiring, scoped, and absent from logs/durable storage.
+- Pairing uses a random six-digit PIN that expires after five minutes and rotates after a successful connection. Failed attempts remain rate-limited when the PIN is displayed again. Session tokens remain opaque, expiring, scoped, and absent from logs or durable storage.
+- The HTTP bridge bounds header, request, idle-socket, per-socket, and concurrent-connection use, including when LAN mode is explicitly enabled.
 - The bridge rejects oversized or malformed payloads and sanitizes all untrusted strings.
 - Vibink does not read cookies, page storage, password fields, form values into bridge context, authorization headers, or request/response bodies. Write refuses sensitive fields and can write only locally reviewed text to the exact selected eligible input after a trusted Apply action; transcription never crosses the bridge.
 - Text returned to the overlay is rendered as text, not trusted HTML. Remote code and `eval` are prohibited.
@@ -58,7 +59,7 @@ Chrome blocks content-script injection on protected surfaces such as `chrome://`
 - LAN listener: explicit `--allow-lan` opt-in, private addresses only, and Private-network firewall access only.
 - Browser transport: authenticated and origin-checked.
 - MCP transport: local STDIO launched from the trusted Vibink checkout.
-- Pairing: fixed `0000` only for the current private flow; short expiry/rotation is required before public release.
+- Pairing: random six-digit code, five-minute expiry, rotation after successful use, and per-address attempt limits.
 - Session: one active browser context per task unless a future design is explicitly reviewed.
 - Retention: bounded in-memory state that expires and is discarded when the process ends.
 

@@ -25,7 +25,6 @@ const expectedPermissions = Object.freeze(["activeTab", "scripting", "storage"])
 const expectedHostPermissions = Object.freeze([
   "http://127.0.0.1/*",
   "http://localhost/*",
-  "http://192.168.0.9/*",
 ]);
 const expectedOptionalHostPermissions = Object.freeze(["http://*/*"]);
 const expectedWebAccessibleResources = Object.freeze([{

@@ -20,6 +20,7 @@ const packageJsonPath = join(projectRoot, "package.json");
 const packageLockPath = join(projectRoot, "package-lock.json");
 const manifestPath = join(projectRoot, "extension", "manifest.json");
 const bridgePath = join(projectRoot, "bridge", "vibink-bridge.mjs");
+const pluginManifestPath = join(projectRoot, "plugins", "vibink", ".codex-plugin", "plugin.json");
 const distDirectory = join(projectRoot, "dist");
 const releasesDirectory = join(projectRoot, "releases");
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -328,6 +329,7 @@ async function run() {
   const packageJson = await readJson(packageJsonPath, "package.json");
   const packageLock = await readJson(packageLockPath, "package-lock.json");
   const manifest = await readJson(manifestPath, "extension/manifest.json");
+  const pluginManifest = await readJson(pluginManifestPath, "plugins/vibink/.codex-plugin/plugin.json");
   const bridgeSource = await readFile(bridgePath, "utf8");
   const currentVersion = packageJson.version;
   validateVersion(currentVersion);
@@ -336,6 +338,9 @@ async function run() {
   }
   if (manifest.version !== currentVersion) {
     throw new Error("extension/manifest.json is out of sync with package.json before release.");
+  }
+  if (pluginManifest.version !== currentVersion) {
+    throw new Error("plugins/vibink/.codex-plugin/plugin.json is out of sync with package.json before release.");
   }
   const currentBridgeVersion = bridgeSource.match(
     /\bconst\s+SERVER_VERSION\s*=\s*["']([^"']+)["']\s*;/,
@@ -407,9 +412,11 @@ async function run() {
       packageLock.version = newVersion;
       packageLock.packages[""].version = newVersion;
       manifest.version = newVersion;
+      pluginManifest.version = newVersion;
       await writeJson(packageJsonPath, packageJson);
       await writeJson(packageLockPath, packageLock);
       await writeJson(manifestPath, manifest);
+      await writeJson(pluginManifestPath, pluginManifest);
       await writeFile(bridgePath, synchronizedBridgeSource, "utf8");
     }
 
