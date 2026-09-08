@@ -1,12 +1,13 @@
 :root {
   color-scheme: dark;
-  --ink: #f3f0e8;
-  --muted: #aaa79f;
-  --line: rgba(243, 240, 232, 0.16);
-  --panel: rgba(255, 255, 255, 0.045);
-  --accent: #48e0be;
-  --accent-ink: #071612;
-  background: #0b0d0c;
+  --ink: #f7f4ff;
+  --muted: #b8b1c9;
+  --line: rgba(255, 255, 255, 0.12);
+  --panel: linear-gradient(145deg, rgba(37, 29, 54, 0.86), rgba(18, 14, 27, 0.82));
+  --accent: #a77cff;
+  --accent-strong: #8a55ff;
+  --accent-ink: #ffffff;
+  background: #0d0a13;
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -17,8 +18,9 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    radial-gradient(circle at 78% 12%, rgba(72, 224, 190, 0.13), transparent 28rem),
-    #0b0d0c;
+    radial-gradient(circle at 78% 6%, rgba(133, 78, 235, 0.25), transparent 32rem),
+    radial-gradient(circle at 5% 42%, rgba(90, 53, 152, 0.17), transparent 28rem),
+    #0d0a13;
 }
 
 a { color: inherit; }
@@ -48,15 +50,9 @@ main {
 }
 
 .mark {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 15px;
-  font-weight: 900;
+  display: block;
+  width: 34px;
+  height: 34px;
 }
 
 .repo-link,
@@ -111,8 +107,9 @@ h1 {
   min-height: 52px;
   padding: 0 24px;
   border-radius: 14px;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent-strong), #b06eff);
   color: var(--accent-ink);
+  box-shadow: 0 12px 36px rgba(131, 76, 238, 0.28);
   font-weight: 800;
   text-decoration: none;
 }
@@ -168,7 +165,8 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--panel);
-  color: #d9fff6;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
+  color: #ded0ff;
   font-size: 14px;
   line-height: 1.8;
 }
@@ -221,7 +219,7 @@ footer {
 
 @media (prefers-reduced-motion: no-preference) {
   .download { transition: transform 140ms ease, box-shadow 140ms ease; }
-  .download:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(72, 224, 190, 0.18); }
+  .download:hover { transform: translateY(-2px); box-shadow: 0 16px 42px rgba(131, 76, 238, 0.38); }
 }
 
 :focus-visible {

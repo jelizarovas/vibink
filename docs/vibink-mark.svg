@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Vibink material fountain pen V logo</title>
+  <desc id="desc">A white descending stroke meets a gold fountain pen nib and white barrel to form a V, with a long Material shadow on purple.</desc>
+  <defs>
+    <clipPath id="tileClip">
+      <rect x="32" y="32" width="448" height="448" rx="112"/>
+    </clipPath>
+
+    <g id="symbol">
+      <g transform="translate(138 159) rotate(60.67)">
+        <path d="M0-33A33 33 0 0 0 0 33H190L241 0 190-33Z" fill="#FCFAFF"/>
+      </g>
+
+      <g transform="translate(256 369) rotate(-60.67)">
+        <path d="M0 0 18-27H74A27 27 0 0 1 74 27H18Z" fill="#FCFAFF"/>
+
+        <g transform="translate(36)">
+          <path d="M64-29H192Q207-29 207-16V16Q207 29 192 29H64Z" fill="#FCFAFF"/>
+          <path d="M82-29H98V29H82Z" fill="#C4B5FD"/>
+          <path d="M0 0C18-6 27-20 40-27H70V27H40C27 20 18 6 0 0Z" fill="#F6C453"/>
+          <path d="M9 0H39" fill="none" stroke="#6D28D9" stroke-width="5" stroke-linecap="round"/>
+          <circle cx="45" cy="0" r="6" fill="#6D28D9"/>
+        </g>
+      </g>
+    </g>
+  </defs>
+
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="#6D28D9"/>
+
+  <g clip-path="url(#tileClip)" fill="#35106B" opacity="0.34">
+    <path d="M116 132 279 352 512 585V480H347L105 238Z"/>
+    <path d="M344 142 404 176 624 396 476 589 256 369Z"/>
+  </g>
+
+  <use href="#symbol"/>
+</svg>
