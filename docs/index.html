@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Download Vibink and connect browser selections, ink, and review feedback to Codex through a local bridge.">
+  <title>Vibink 2.0.1</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <a class="wordmark" href="https://github.com/jelizarovas/vibink" aria-label="Vibink on GitHub">
+        <span class="mark" aria-hidden="true">V</span>
+        <span>Vibink</span>
+      </a>
+      <a class="repo-link" href="https://github.com/jelizarovas/vibink">View source</a>
+    </header>
+
+    <section class="hero" aria-labelledby="release-title">
+      <p class="eyebrow">Open source · local bridge · Chrome</p>
+      <h1 id="release-title">Point at the page.<br>Change the real code.</h1>
+      <p class="lede">Vibink gives Codex the browser context that is awkward to describe: the component you selected, the area you circled, the spacing you adjusted, and the review decision you made.</p>
+      <div class="actions">
+        <a class="download" href="https://github.com/jelizarovas/vibink/releases/download/v2.0.1/vibink-2.0.1.zip">Download 2.0.1</a>
+        <a class="checksum" href="https://github.com/jelizarovas/vibink/releases/download/v2.0.1/vibink-2.0.1.zip.sha256">SHA-256 checksum</a>
+      </div>
+      <p class="requirement">Windows or another Node.js 22 host, Chrome or Chromium, and Codex.</p>
+    </section>
+
+    <section class="release-grid" aria-label="Release details">
+      <article>
+        <p class="number">01</p>
+        <h2>Install the extension</h2>
+        <p>Extract the ZIP, open <code>chrome://extensions</code>, enable Developer mode, and load the extracted folder.</p>
+      </article>
+      <article>
+        <p class="number">02</p>
+        <h2>Register the bridge</h2>
+        <p>Clone the repository, copy the extension ID from Chrome, and run the guarded PowerShell setup command in the README.</p>
+      </article>
+      <article>
+        <p class="number">03</p>
+        <h2>Connect a task</h2>
+        <p>Ask Codex to connect Vibink. Enter the six-digit PIN it reports, then click Vibink on the page you want to work on.</p>
+      </article>
+    </section>
+
+    <section class="install" aria-labelledby="codex-skill-title">
+      <div>
+        <p class="eyebrow">Codex skill included</p>
+        <h2 id="codex-skill-title">Install the workflow skill</h2>
+        <p>The repository contains the Vibink workflow skill inside its plugin package. Ask Codex's skill installer to install the public GitHub folder, then start a new Codex task.</p>
+      </div>
+      <pre><code>$skill-installer Install the skill from
+https://github.com/jelizarovas/vibink/tree/main/plugins/vibink/skills/vibink</code></pre>
+    </section>
+
+    <section class="changes" aria-labelledby="changes-title">
+      <p class="eyebrow">What changed</p>
+      <h2 id="changes-title">2.0.1 is ready for public use</h2>
+      <ul>
+        <li>Pairing now uses a random six-digit PIN that expires after five minutes and rotates after use.</li>
+        <li>The extension starts on loopback. A LAN address requires an explicit Chrome permission and <code>--allow-lan</code>.</li>
+        <li>The repository ships a Codex plugin manifest, an installable workflow skill, and an MIT license.</li>
+        <li>Request progress, visual comparison, and owner review stay tied to the current page context.</li>
+      </ul>
+    </section>
+
+    <section class="privacy" aria-labelledby="privacy-title">
+      <p class="eyebrow">Local by design</p>
+      <h2 id="privacy-title">The bridge stays on your machine.</h2>
+      <p>Vibink has no account, hosted relay, analytics service, or voice recorder. It does not read cookies, passwords, browser storage, or form values into Codex context. Screenshots and diagnostics require separate actions.</p>
+      <a href="https://github.com/jelizarovas/vibink/blob/main/docs/privacy.md">Read the privacy notes</a>
+    </section>
+
+    <footer>
+      <span>Vibink 2.0.1</span>
+      <span>MIT licensed</span>
+      <a href="https://github.com/jelizarovas/vibink/releases/tag/v2.0.1">Release notes</a>
+    </footer>
+  </main>
+</body>
+</html>

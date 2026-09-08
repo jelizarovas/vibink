@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vibink"
+  short_description: "Use browser selections and ink in Codex"
+  default_prompt: "Use $vibink to connect to my marked browser tab and make the requested source change."

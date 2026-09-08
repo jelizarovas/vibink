@@ -106,7 +106,7 @@ function pairingRequest(baseUrl, pin) {
 }
 
 function incorrectPinFor(pin) {
-  return pin === "0000" ? "0001" : "0000";
+  return pin === "000000" ? "000001" : "000000";
 }
 
 test("request transport rejects stale work, acknowledges progress, and reports owner intent without execution", async (context) => {
@@ -218,13 +218,13 @@ test("health and feedback transport preserves the exact extension-origin gate", 
   assert.equal(preflight.headers.get("access-control-allow-methods"), "POST, OPTIONS");
 });
 
-test("pairing info returns an immediately usable PIN and resets only failed-attempt lockout", async (context) => {
+test("pairing rotates after use and connection info cannot reset failed-attempt lockout", async (context) => {
   const { baseUrl, child, rpc } = await startBridge();
   context.after(() => stopBridge(child));
 
   const first = await connectionInfo(rpc);
   const repeated = await connectionInfo(rpc);
-  assert.match(first.pairingPin, /^[0-9]{4}$/);
+  assert.match(first.pairingPin, /^[0-9]{6}$/);
   assert.equal(repeated.pairingPin, first.pairingPin);
   assert.equal(Date.parse(first.pairingExpiresAt) - Date.now() > 4 * 60 * 1000, true);
 
@@ -235,8 +235,8 @@ test("pairing info returns an immediately usable PIN and resets only failed-atte
   assert.equal((await pairingRequest(baseUrl, first.pairingPin)).status, 200);
 
   const second = await connectionInfo(rpc);
-  assert.equal(second.pairingPin, first.pairingPin);
-  assert.equal(second.pairingPin, "0000");
+  assert.match(second.pairingPin, /^[0-9]{6}$/);
+  assert.notEqual(second.pairingPin, first.pairingPin);
   const secondWrongPin = incorrectPinFor(second.pairingPin);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     assert.equal((await pairingRequest(baseUrl, secondWrongPin)).status, 401);
@@ -245,7 +245,7 @@ test("pairing info returns an immediately usable PIN and resets only failed-atte
 
   const unlocked = await connectionInfo(rpc);
   assert.equal(unlocked.pairingPin, second.pairingPin);
-  assert.equal((await pairingRequest(baseUrl, unlocked.pairingPin)).status, 200);
+  assert.equal((await pairingRequest(baseUrl, unlocked.pairingPin)).status, 429);
 });
 
 test("every extension health and feedback probe uses POST with a JSON body", async () => {

@@ -29,7 +29,7 @@ The extension does not request permanent access to every website. Chrome-protect
 - an STDIO MCP server launched by Codex; and
 - an authenticated local HTTP endpoint used by the Vibink extension for state updates and bounded feedback polling.
 
-It binds to loopback by default. `--allow-lan` deliberately opens the listener to trusted private-network clients such as a Surface Hub. The current private development demo temporarily fixes the pairing PIN at `0000`; the production target remains short-lived pairing with rotation. LAN mode still rejects public addresses, rate-limits attempts, validates origin and session identity, bounds payload sizes, and keeps active state in memory. The bridge accepts only an explicit allowlist of up to eight exact Chrome extension origins and still permits only one active browser outlet at a time. Identity-sensitive health and feedback probes use bounded JSON `POST` requests so Chrome supplies the exact extension origin; the bridge never relaxes its origin gate for an anonymous LAN health check.
+It binds to loopback by default. `--allow-lan` deliberately opens the listener to trusted private-network clients such as a Surface Hub. Pairing uses a random six-digit PIN that expires after five minutes and rotates after a successful connection. LAN mode rejects public addresses, rate-limits attempts, validates origin and session identity, bounds payload sizes, and keeps active state in memory. The bridge accepts only an explicit allowlist of up to eight exact Chrome extension origins and permits one active browser outlet at a time. Identity-sensitive health and feedback probes use bounded JSON `POST` requests so Chrome supplies the exact extension origin; the bridge never relaxes its origin gate for an anonymous LAN health check.
 
 The bridge is not a cloud service. It uses no Redis, Firebase, hosted database, analytics collector, or Vibink account.
 
@@ -88,7 +88,7 @@ The bridge trusts only a successfully paired session on an allowed local/private
 
 The guarded setup script registers Vibink once in the development host's global Codex MCP configuration using an absolute local bridge path and explicit extension identities. A task opened in any trusted target repository can then launch its own STDIO bridge. State-read tools expose the minimum current session, browser feedback tools affect only bounded feedback, and `vibink_record_learning` can append only an explicitly owner-confirmed entry to the fixed Vibink brain. Source edits stay behind Codex's normal approval and sandbox boundaries.
 
-If more than one Codex task is open, each task owns a separate bridge process. The first normally binds the BEAST demo port `59645`; later processes bind private fallback ports. The intended task reports its exact address through `vibink_connection_info`; the current private demo uses PIN `0000`. Vibink does not scan ports or infer which task should receive browser context.
+If more than one Codex task is open, each task owns a separate bridge process. The first normally binds port `59645`; later processes bind private fallback ports. The intended task reports its exact address and one-time PIN through `vibink_connection_info`. Vibink does not scan ports or infer which task should receive browser context.
 
 ### Assistant feedback
 
@@ -133,7 +133,7 @@ The bridge rejects updates for the wrong session and older sequences. Equal-sequ
 ## Session lifecycle
 
 1. The owner opens the intended source repository and starts a Codex task; its global MCP registration starts the local bridge process.
-2. The bridge reports its exact local endpoint. The current private development demo uses the prefilled PIN `0000`; a public-ready build restores a short-lived one-time PIN.
+2. The bridge reports its exact local endpoint and short-lived one-time PIN.
 3. The extension pairs and receives an opaque session credential held only for that browser session.
 4. The extension streams state only while Vibink is active.
 5. Navigation or viewport changes invalidate spatial state.
@@ -145,7 +145,7 @@ The bridge rejects updates for the wrong session and older sequences. Equal-sequ
 ## Failure behavior
 
 - If injection is prohibited, show an unsupported-page message and do nothing else.
-- Before a public-ready build, replace the private demo's fixed `0000` PIN with a fresh short-lived code; never silently weaken the published authentication model.
+- Keep the random short-lived pairing code and its post-use rotation intact in every release.
 - A failed bridge request stops diagnostics sharing immediately. Two consecutive failures show the disconnected warning; a successful request restores connection status. Older responses cannot override a newer completed request.
 - If an unreachable bridge leaves a local credential behind, expose a deliberate offline reset with a plain warning that remote revocation was not confirmed. Never use that reset while the bridge is reachable.
 - If capture or diagnostic consent is declined, continue with drawings and selection only.

@@ -58,7 +58,7 @@ brain/                Owner-confirmed, non-PII reusable learnings
 
 ## Laptop quick start: Codex and Chrome on the same computer
 
-The GitHub repository is private, so first sign in to GitHub with an account that can access `jelizarovas/vibink`. Clone it into a stable folder; the global Codex registration will point back to this checkout.
+Clone Vibink into a stable folder. The global Codex registration points back to this checkout.
 
 ```powershell
 New-Item -ItemType Directory -Path C:\apps -Force | Out-Null
@@ -99,7 +99,7 @@ Do **not** add `-AllowLan` when Codex and Chrome are on the same laptop. If `vib
 
 Fully restart Codex after registration. Open the source repository you actually want to change—not necessarily the Vibink repository—start a fresh task, confirm `vibink` appears in `/mcp`, and say **Connect Vibink**. The task will report its exact local bridge address, normally `http://127.0.0.1:59645`; another open Codex task may cause it to use a different reported port.
 
-Start the target application's development server using that application's own README, then open its local URL in Chrome. Click Vibink on that ordinary HTTP/HTTPS page. Choose **Find local Codex tasks**, select the task label reported by Codex, and choose **Connect** with the current development PIN `0000`. The exact reported bridge address remains available as a manual fallback and for an explicitly configured LAN connection. Discovery does not pair automatically.
+Start the target application's development server using that application's own README, then open its local URL in Chrome. Click Vibink on that ordinary HTTP/HTTPS page. Choose **Find local Codex tasks**, select the task label reported by Codex, and choose **Connect** with the six-digit PIN shown by that Codex task. The PIN expires after five minutes and rotates after a successful connection. The reported bridge address remains available as a manual fallback and for an explicitly configured LAN connection. Discovery does not pair automatically.
 
 Now select or mark the page and speak in the same Codex task. Codex reads the paired visual context, edits the source in the target repository through its normal tools, and the application's hot reload—or a browser refresh—shows the tweak on that same laptop.
 
@@ -115,14 +115,24 @@ Detailed desktop, multi-device, and Surface Hub steps are in [Setup](docs/setup.
 
 1. Open Codex in the source repository you want to change and start a new task.
 2. Start the development server yourself, or explicitly ask Codex to start it, keep its terminal attached, monitor its output, and report the ready URL. Repository-specific instructions still win.
-3. Ask Codex to **Connect Vibink**. Codex reports the exact bridge address for that task; the current private development demo uses the prefilled PIN `0000`.
+3. Ask Codex to **Connect Vibink**. Codex reports the exact bridge address and current six-digit PIN for that task.
 4. Open the development URL. Codex may open it when browser control is available and you authorize that action.
-5. Click the Vibink extension icon. If setup opens, confirm the reported address and choose **Connect**; PIN `0000` is already filled in. On later paired visits, clicking the icon opens an idle toolbar directly.
+5. Click the Vibink extension icon. If setup opens, confirm the reported address, enter the PIN from Codex, and choose **Connect**. On later paired visits, clicking the icon opens an idle toolbar directly.
 6. Start native Codex Voice, draw, measure, write, or select what you mean, and iterate. Use Info for assistant output and proposal/completion decisions; Suggest opens the visual-draft flow and CSS opens the selected-component draft editor.
 
 While the toolbar is open on the current tab, clicking Vibink opens its management card: choose **Hide Vibink toolbar** to clear the visible page context while staying paired, or **Disconnect from this task** to revoke the task session. The toolbar X is also Hide, not Disconnect.
 
 The extension click remains manual because it is Chrome's temporary `activeTab` permission gesture. A URL flag must not silently activate Vibink, capture the page, or enable diagnostics.
+
+## Install the Codex skill
+
+The repository includes an installable Vibink workflow skill at [`plugins/vibink/skills/vibink`](plugins/vibink/skills/vibink). In Codex, invoke `$skill-installer` and ask it to install:
+
+```text
+https://github.com/jelizarovas/vibink/tree/main/plugins/vibink/skills/vibink
+```
+
+Start a new Codex task after installation so the skill is available. The skill teaches Codex how to use Vibink's request and review flow. The local MCP bridge still needs the one-time registration above because its Chrome extension ID is specific to each installation.
 
 ## Consent model
 

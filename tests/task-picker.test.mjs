@@ -76,7 +76,7 @@ test("a reused port never silently pairs to a different discovered task", async 
   });
   h.local["vibink.bridge"] = { baseUrl: endpoint };
   h.session["vibink.selectedTask"] = { baseUrl: endpoint, taskId };
-  await assert.rejects(h.api.pairBridge("0000"), /task has stopped or changed/);
+  await assert.rejects(h.api.pairBridge("000000"), /task has stopped or changed/);
   assert.deepEqual(calls, [`${endpoint}/health`]);
   assert.equal(h.session["vibink.session"], undefined);
 });
@@ -85,7 +85,7 @@ test("discovery rejects remote endpoints, expired leases and oversized directory
   let oversized = false;
   const h = await harness(async () => oversized ? json({ extra: "x".repeat(17000) }) : json({ ok: true, tasks: [
     { taskId, baseUrl: endpoint, expiresAt: Date.now() + 10000, label: "Untrusted page title" },
-    { taskId, baseUrl: "http://192.168.0.9:59645", expiresAt: Date.now() + 10000 },
+    { taskId, baseUrl: "http://192.168.50.20:59645", expiresAt: Date.now() + 10000 },
     { taskId, baseUrl: endpoint, expiresAt: Date.now() - 1000 },
   ] }));
   const result = await h.api.findLocalTasks();
@@ -113,7 +113,7 @@ test("a delayed popup status response cannot overwrite a task the owner just sel
     } } } });
   const source = (await readFile(new URL("../extension/popup.js", import.meta.url), "utf8"))
     .replace(/^import .*;\r?\n/gm, "");
-  vm.runInContext(`const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:59645'; const DEFAULT_PAIRING_PIN = '0000';\n${source}`, context);
+  vm.runInContext(`const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:59645'; const DEFAULT_PAIRING_PIN = '';\n${source}`, context);
   await elements.get("#find-tasks").handlers.click();
   elements.get("#local-task").value = taskId;
   elements.get("#local-task").handlers.change();

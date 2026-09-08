@@ -493,8 +493,8 @@ function pairBridge(pin) {
 
 async function pairBridgeLocked(pin) {
   const pairingPin = String(pin ?? "").trim();
-  if (!/^[0-9]{4}$/.test(pairingPin)) {
-    throw new Error("Enter the four-digit PIN from Codex.");
+  if (!/^[0-9]{6}$/.test(pairingPin)) {
+    throw new Error("Enter the six-digit PIN from Codex.");
   }
   const config = await getBridgeConfig();
   await verifySelectedTask(config.baseUrl, config.taskId);

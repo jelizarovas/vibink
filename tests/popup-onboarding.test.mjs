@@ -41,17 +41,19 @@ test("popup presents one nontechnical next step for each connection state", asyn
   assert.match(source, /Reload this page, then click the Vibink icon again/);
   assert.match(html, /id="connection-panel"[\s\S]*id="bridge-url"[\s\S]*id="pairing-panel"[\s\S]*id="pairing-pin"/);
   assert.match(html, /id="toggle"[\s\S]*id="disconnect"/);
-  assert.match(config, /DEFAULT_BRIDGE_URL = "http:\/\/192\.168\.0\.9:59645"/);
-  assert.match(config, /DEFAULT_PAIRING_PIN = "0000"/);
-  assert.match(html, /id="bridge-url"[^>]*value="http:\/\/192\.168\.0\.9:59645"/);
+  assert.match(config, /DEFAULT_BRIDGE_URL = "http:\/\/127\.0\.0\.1:59645"/);
+  assert.match(config, /DEFAULT_PAIRING_PIN = ""/);
+  assert.match(html, /id="bridge-url"[^>]*value="http:\/\/127\.0\.0\.1:59645"/);
   assert.match(source, /\^\[0-9\]\{1,5\}\$[\s\S]*DEFAULT_BRIDGE_URL/);
-  assert.match(html, /id="pairing-pin"[^>]*inputmode="numeric"[^>]*minlength="4"[^>]*maxlength="4"[^>]*pattern="\[0-9\]\{4\}"[^>]*value="0000"/);
+  assert.match(html, /id="pairing-pin"[^>]*inputmode="numeric"[^>]*minlength="6"[^>]*maxlength="6"[^>]*pattern="\[0-9\]\{6\}"[^>]*value=""/);
   assert.match(source, /elements\.pin\.value = DEFAULT_PAIRING_PIN/);
   assert.doesNotMatch(source, /autoPairAttempted/);
   assert.doesNotMatch(source, /await connectWithPin\(\{ announceInvalid: false, permissionMode: "existing" \}\)/);
   assert.match(source, /type: "VIBINK_FIND_TASKS"/);
   assert.match(source, /taskId: selectedTaskId/);
-  assert.match(source, /if \(!\/\^\[0-9\]\{4\}\$\/\.test\(pin\)\)/);
+  assert.match(source, /if \(!\/\^\[0-9\]\{6\}\$\/\.test\(pin\)\)/);
+  assert.match(source, /elements\.pin\.value\.length !== 6/);
+  assert.doesNotMatch(source, /four-digit PIN/);
   assert.match(
     source,
     /permissionMode === "existing"\s+\? await chrome\.permissions\.contains\(\{ origins: \[bridge\.originPattern\] \}\)\s+: await chrome\.permissions\.request\(\{ origins: \[bridge\.originPattern\] \}\)/,
@@ -68,7 +70,7 @@ test("popup presents one nontechnical next step for each connection state", asyn
     source.indexOf('elements.pin.addEventListener("keydown"'),
   );
   assert.equal(
-    inputHandler.includes('elements.pin.value = elements.pin.value.replace(/[^0-9]/g, "").slice(0, 4);'),
+    inputHandler.includes('elements.pin.value = elements.pin.value.replace(/[^0-9]/g, "").slice(0, 6);'),
     true,
   );
   assert.doesNotMatch(inputHandler, /connectWithPin/);
