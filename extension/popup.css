@@ -19,6 +19,10 @@ h1 { margin: 0; font-size: 17px; line-height: 1.1; letter-spacing: -0.02em; }
 .status-dot.ready { background: #a78bfa; box-shadow: 0 0 0 3px rgb(167 139 250 / 16%); }
 .status-dot.connected { background: #34d399; box-shadow: 0 0 0 3px rgb(52 211 153 / 16%); }
 button, input { font: inherit; }
+select { width: 100%; min-height: 40px; font: inherit; color: #fafafa; background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 6px; }
+select:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+.task-picker { display: grid; gap: 6px; margin: 12px 0; }
+@media (pointer: coarse) { select { min-height: 46px; font-size: 16px; } }
 button { border: 1px solid #3f3f46; background: #27272a; color: #fafafa; border-radius: 8px; min-height: 33px; padding: 0 11px; cursor: pointer; transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease; }
 button:hover { border-color: #52525b; background: #3f3f46; }
 button:disabled { cursor: wait; opacity: .58; }

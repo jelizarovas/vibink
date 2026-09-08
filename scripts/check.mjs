@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptsDirectory, "..");
 const extensionDirectory = join(projectRoot, "extension");
-const ignoredDirectories = new Set([".archive", ".git", "dist", "node_modules", "releases"]);
+const ignoredDirectories = new Set([".archive", ".validation", ".git", "dist", "node_modules", "releases"]);
 const JavaScriptExtensions = new Set([".cjs", ".js", ".mjs"]);
 
 function assert(condition, message) {

@@ -109,6 +109,59 @@ function incorrectPinFor(pin) {
   return pin === "0000" ? "0001" : "0000";
 }
 
+test("request transport rejects stale work, acknowledges progress, and reports owner intent without execution", async (context) => {
+  const { baseUrl, child, rpc } = await startBridge();
+  context.after(() => stopBridge(child));
+  const info = await connectionInfo(rpc);
+  const session = await (await pairingRequest(baseUrl, info.pairingPin)).json();
+  const post = async (endpoint, body = {}, authenticated = true) => {
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      method: "POST", headers: {
+        Origin: EXTENSION_ORIGIN, "Content-Type": "application/json",
+        ...(authenticated ? { Authorization: `Bearer ${session.token}` } : {}),
+      }, body: JSON.stringify(body),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const tool = (name, args = {}) => rpc.call("tools/call", { name, arguments: args });
+  const snapshot = async () => JSON.parse((await tool("vibink_get_state")).content[0].text);
+  const page = {
+    enabled: true, sessionId: session.sessionId,
+    pageInstanceId: "12345678-1234-1234-1234-123456789abc", activationEpoch: 1,
+    contextRevision: 1, sequence: 1, pageUrl: "https://example.test/", route: "/",
+    viewport: { width: 1000, height: 800 }, annotations: [],
+    editFocus: { kind: "component", selector: ".card", classHints: ["card"] },
+  };
+  assert.equal((await post("/browser/state", page)).status, 200);
+  const envelope = { pageInstanceId: page.pageInstanceId, activationEpoch: 1, contextRevision: 1, expectedSequence: 1 };
+  assert.equal((await post("/browser/request", envelope, false)).status, 401);
+  assert.equal((await post("/browser/request", { ...envelope, expectedSequence: 0 })).status, 409);
+  const started = await post("/browser/request", envelope);
+  assert.equal(started.status, 200);
+  const firstId = started.body.request.requestId;
+  assert.equal(started.body.request.snapshot, undefined);
+  assert.equal((await snapshot()).request.snapshot.editFocus.selector, ".card");
+  assert.equal((await tool("vibink_send_message", { message: "unscoped" })).isError, true);
+  assert.equal((await tool("vibink_update_request", { request_id: firstId, status: "working", message: "Checking the card" })).isError, undefined);
+  const feedback = (await post("/feedback")).body.feedback;
+  assert.equal(feedback.request.status, "working");
+  assert.equal(feedback.requestId, firstId);
+  assert.equal((await post("/browser/state", { ...page, sequence: 2, ownerReviewIntent: { intentId: "intent-1", requestId: firstId, action: "revert" } })).status, 200);
+  assert.equal((await snapshot()).request.ownerReviewIntent.sourceChangeApplied, false);
+  assert.equal((await snapshot()).request.status, "working");
+  const second = JSON.parse((await tool("vibink_begin_request")).content[0].text).request;
+  assert.notEqual(second.requestId, firstId);
+  assert.equal((await tool("vibink_send_message", { request_id: firstId, message: "late" })).isError, true);
+  assert.equal((await tool("vibink_send_message", { request_id: second.requestId, message: "current" })).isError, undefined);
+  await post("/browser/state", { ...page, sequence: 3, contextRevision: 2 });
+  assert.equal((await snapshot()).request, null);
+  assert.equal((await snapshot()).assistant.previousRequest.invalidationReason, "context_changed");
+  assert.equal((await tool("vibink_send_message", { request_id: second.requestId, message: "wrong coordinates" })).isError, true);
+  await post("/disconnect");
+  assert.equal((await snapshot()).request, null);
+  assert.deepEqual((await snapshot()).requestHistory, []);
+});
+
 async function stopBridge(child) {
   if (child.exitCode !== null) return;
   child.stdin.end();
@@ -205,6 +258,96 @@ test("every extension health and feedback probe uses POST with a JSON body", asy
   const feedbackProbe = 'bridgeFetch("/feedback", { method: "POST", body: {}, timeoutMs: 1800 })';
   assert.equal(background.split(healthProbe).length - 1, 2);
   assert.equal(background.split(feedbackProbe).length - 1, 2);
-  assert.match(content, /path: "\/feedback",\s+options: \{ method: "POST", body: \{\}, timeoutMs: 2200 \}/);
+  assert.match(content, /path: "\/feedback",\s+options: \{\s+method: "POST",\s+body: \{ afterFeedbackRevision: state\.feedbackRevision, waitMs: 1500 \},\s+timeoutMs: 2200/);
   assert.match(background, /This Codex task is running an older Vibink bridge\. Start a fresh Codex task/);
+});
+
+test("feedback waits for assistant changes, omits unchanged payloads, and rechecks revocation", async (context) => {
+  const { baseUrl, child, rpc } = await startBridge();
+  context.after(() => stopBridge(child));
+  const info = await connectionInfo(rpc);
+  const session = await (await pairingRequest(baseUrl, info.pairingPin)).json();
+  const post = async (path, body = {}) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { Origin: EXTENSION_ORIGIN, "Content-Type": "application/json", Authorization: `Bearer ${session.token}` },
+      body: JSON.stringify(body),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const page = {
+    enabled: true, sessionId: session.sessionId,
+    pageInstanceId: "12345678-1234-1234-1234-123456789abc", activationEpoch: 1,
+    contextRevision: 1, sequence: 1, pageUrl: "https://example.test/", route: "/",
+    viewport: { width: 1000, height: 800 }, annotations: [],
+  };
+  assert.equal((await post("/browser/state", page)).status, 200);
+  const initial = (await post("/feedback")).body;
+  const cursor = initial.feedbackRevision;
+  assert.ok(Number.isSafeInteger(cursor));
+
+  await post("/browser/state", { ...page, sequence: 2, drawing: true });
+  const unchanged = (await post("/feedback", { afterFeedbackRevision: cursor })).body;
+  assert.equal(unchanged.unchanged, true);
+  assert.equal(Object.hasOwn(unchanged, "feedback"), false);
+  assert.ok(unchanged.revision > initial.revision);
+
+  let settled = false;
+  const waiting = post("/feedback", { afterFeedbackRevision: cursor, waitMs: 1500 }).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await post("/browser/state", { ...page, sequence: 3, drawing: false });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(settled, false, "browser activity must not finish the assistant wait");
+  const sentAt = performance.now();
+  const sent = await rpc.call("tools/call", { name: "vibink_send_message", arguments: { message: "Ready for your next change." } });
+  assert.equal(sent.isError, undefined);
+  const changed = (await waiting).body;
+  assert.equal(changed.feedback.message, "Ready for your next change.");
+  assert.ok(changed.feedbackRevision > cursor);
+  assert.ok(performance.now() - sentAt < 1000, "feedback should wake the pending request");
+
+  const timeout = (await post("/feedback", { afterFeedbackRevision: changed.feedbackRevision, waitMs: 30 })).body;
+  assert.equal(timeout.unchanged, true);
+  assert.equal(Object.hasOwn(timeout, "feedback"), false);
+
+  const revokedWait = post("/feedback", { afterFeedbackRevision: changed.feedbackRevision, waitMs: 1500 });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal((await post("/disconnect")).status, 200);
+  assert.equal((await revokedWait).status, 401);
+});
+
+test("the first selection in a new context remains available through equal-sequence heartbeats", async (context) => {
+  const { baseUrl, child, rpc } = await startBridge();
+  context.after(() => stopBridge(child));
+  const info = await connectionInfo(rpc);
+  const session = await (await pairingRequest(baseUrl, info.pairingPin)).json();
+  const page = {
+    enabled: true, sessionId: session.sessionId,
+    pageInstanceId: "12345678-1234-1234-1234-123456789abc", activationEpoch: 1,
+    contextRevision: 1, sequence: 1, pageUrl: "https://example.test/", route: "/",
+    viewport: { width: 1000, height: 800 }, annotations: [],
+  };
+  const publish = async (body) => {
+    const response = await fetch(`${baseUrl}/browser/state`, {
+      method: "POST",
+      headers: { Origin: EXTENSION_ORIGIN, "Content-Type": "application/json", Authorization: `Bearer ${session.token}` },
+      body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 200);
+    await response.json();
+  };
+  await publish(page);
+  const selected = {
+    ...page, sequence: 2, contextRevision: 2,
+    editFocus: { kind: "component", selector: ".new-card", classHints: ["new-card"] },
+  };
+  await publish(selected);
+  await publish(selected);
+  const result = await rpc.call("tools/call", { name: "vibink_get_state", arguments: {} });
+  const snapshot = JSON.parse(result.content[0].text);
+  assert.equal(snapshot.browser.editFocus.kind, "component");
+  assert.equal(snapshot.browser.editFocus.selector, ".new-card");
 });

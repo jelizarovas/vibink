@@ -18,6 +18,7 @@ serviceAccountKey.json
 coverage/
 brain/.vibink-write.lock
 /.archive/
+/.validation/
 .DS_Store
 Thumbs.db
 .idea/

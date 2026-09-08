@@ -1,6 +1,6 @@
 import "./compat.js";
 import "./lifecycle.js";
-import { DEFAULT_BRIDGE_URL } from "./config.js";
+import { DEFAULT_BRIDGE_URL, TASK_DIRECTORY_URL } from "./config.js";
 
 const {
   createSerialQueue,
@@ -13,8 +13,9 @@ const BRIDGE_SESSION_KEY = "vibink.session";
 const ACTIVE_PAGE_KEY = "vibink.activePage";
 const ACTIVATION_EPOCH_KEY = "vibink.activationEpoch";
 const ACTION_ERROR_KEY = "vibink.actionError";
+const SELECTED_TASK_KEY = "vibink.selectedTask";
 const POPUP_PATH = "popup.html";
-const ALLOWED_PATHS = new Set(["/health", "/pair", "/disconnect", "/feedback", "/browser/state"]);
+const ALLOWED_PATHS = new Set(["/health", "/pair", "/disconnect", "/feedback", "/browser/state", "/browser/request"]);
 const runActivationTransition = createSerialQueue();
 const runSessionTransition = createSerialQueue();
 const runSessionStorageTransition = createSerialQueue();
@@ -66,7 +67,55 @@ function normalizeBridgeUrl(input) {
 async function getBridgeConfig() {
   const stored = await chrome.storage.local.get(BRIDGE_CONFIG_KEY);
   const baseUrl = normalizeBridgeUrl(stored[BRIDGE_CONFIG_KEY]?.baseUrl || DEFAULT_BRIDGE_URL);
-  return { baseUrl };
+  const selected = (await chrome.storage.session.get(SELECTED_TASK_KEY))[SELECTED_TASK_KEY];
+  return { baseUrl, taskId: selected?.baseUrl === baseUrl ? selected.taskId : null };
+}
+
+async function taskJson(url) {
+  const timeout = createAbortTimeout(1800);
+  try {
+    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: "{}", cache: "no-store", redirect: "error", signal: timeout.signal });
+    if (!response.ok) throw new Error("Local task discovery is unavailable. You can use the connection address below.");
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 16384) throw new Error("Local task response is too large.");
+        chunks.push(value);
+      }
+    } finally { await reader.cancel(); }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } finally { timeout.cleanup(); }
+}
+
+async function findLocalTasks() {
+  const result = await taskJson(`${TASK_DIRECTORY_URL}/tasks`);
+  if (!result.ok || !Array.isArray(result.tasks) || result.tasks.length > 32) throw new Error("Invalid local task list.");
+  const tasks = result.tasks.filter((task) => /^[a-f0-9]{32}$/.test(task?.taskId)
+    && /^http:\/\/127\.0\.0\.1:[0-9]{1,5}$/.test(task?.baseUrl)
+    && Number.isFinite(task.expiresAt) && task.expiresAt > Date.now() && task.expiresAt <= Date.now() + 20000)
+    .map((task) => ({ taskId: task.taskId, baseUrl: normalizeBridgeUrl(task.baseUrl),
+      label: `Task ${task.taskId.slice(0, 6)}`, expiresAt: task.expiresAt }));
+  return { ok: true, tasks };
+}
+
+async function verifySelectedTask(baseUrl, taskId) {
+  if (!taskId) return;
+  if (!/^[a-f0-9]{32}$/.test(taskId) || !/^http:\/\/127\.0\.0\.1:[0-9]{1,5}$/.test(baseUrl)) {
+    throw new Error("Select a local task again.");
+  }
+  const health = await taskJson(`${baseUrl}/health`);
+  if (health?.ok !== true || health.name !== "vibink" || health.taskId !== taskId) {
+    throw new Error("That task has stopped or changed. Find and select the task again.");
+  }
 }
 
 function withSessionLock(task) {
@@ -331,7 +380,7 @@ async function bridgeFetch(pathname, options = {}) {
   const { baseUrl } = await getBridgeConfig();
   const session = await getBridgeSession();
   let body = options.body;
-  if (path === "/browser/state" && (options.method || "GET") === "POST") {
+  if (["/browser/state", "/browser/request"].includes(path) && (options.method || "GET") === "POST") {
     if (!session) throw new Error("Pair Vibink with the local bridge first.");
     body = {
       ...(body && typeof body === "object" ? body : {}),
@@ -397,17 +446,18 @@ async function bridgeFetch(pathname, options = {}) {
   }
 }
 
-function configureBridge(baseUrl) {
-  return withSessionLock(() => configureBridgeLocked(baseUrl));
+function configureBridge(baseUrl, taskId = null) {
+  return withSessionLock(() => configureBridgeLocked(baseUrl, taskId));
 }
 
-async function configureBridgeLocked(baseUrl) {
+async function configureBridgeLocked(baseUrl, taskId = null) {
   const normalized = normalizeBridgeUrl(baseUrl);
   const originPattern = `${normalized}/*`;
   const permitted = await chrome.permissions.contains({ origins: [originPattern] });
   if (!permitted) throw new Error("Allow access to this private bridge address first.");
+  await verifySelectedTask(normalized, taskId);
   const current = await getBridgeConfig();
-  if (current.baseUrl === normalized) return { ok: true, baseUrl: normalized, unchanged: true };
+  if (current.baseUrl === normalized && current.taskId === taskId) return { ok: true, baseUrl: normalized, unchanged: true };
   disconnecting = true;
   let previousTabId = null;
   try {
@@ -426,6 +476,8 @@ async function configureBridgeLocked(baseUrl) {
       await clearBridgeSession(session.token);
     }
     await chrome.storage.local.set({ [BRIDGE_CONFIG_KEY]: { baseUrl: normalized } });
+    if (taskId) await chrome.storage.session.set({ [SELECTED_TASK_KEY]: { baseUrl: normalized, taskId } });
+    else await chrome.storage.session.remove(SELECTED_TASK_KEY);
     await clearActionError();
   } finally {
     await takeActivePage();
@@ -444,6 +496,8 @@ async function pairBridgeLocked(pin) {
   if (!/^[0-9]{4}$/.test(pairingPin)) {
     throw new Error("Enter the four-digit PIN from Codex.");
   }
+  const config = await getBridgeConfig();
+  await verifySelectedTask(config.baseUrl, config.taskId);
   disconnecting = true;
   let previousTabId = null;
   try {
@@ -451,7 +505,7 @@ async function pairBridgeLocked(pin) {
     await takeActivePage();
     const result = await bridgeFetch("/pair", {
       method: "POST",
-      body: { pin: pairingPin },
+      body: { pin: pairingPin, ...(config.taskId ? { taskId: config.taskId } : {}) },
     });
     const expiresInMs = Number(result.expiresInMs);
     if (!Number.isFinite(expiresInMs) || expiresInMs <= 0) {
@@ -578,7 +632,7 @@ async function assertActivePage(sender, pageInstanceId, activationEpoch) {
 }
 
 async function bridgeRequest(message, sender) {
-  if (message.path === "/browser/state" || message.path === "/feedback") {
+  if (message.path === "/browser/state" || message.path === "/browser/request" || message.path === "/feedback") {
     await assertActivePage(sender, message.pageInstanceId, message.activationEpoch);
   }
   return bridgeFetch(message.path, message.options);
@@ -751,7 +805,7 @@ async function toggleTab(tab = null) {
   } catch {
     await chrome.scripting.executeScript({
       target: { tabId: target.id },
-      files: ["compat.js", "lifecycle.js", "content.js"],
+      files: ["compat.js", "lifecycle.js", "selection.js", "performance.js", "review.js", "content.js"],
     });
     response = await chrome.tabs.sendMessage(target.id, { type: "VIBINK_TOGGLE" });
   }
@@ -854,6 +908,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message?.type) {
+    case "VIBINK_FIND_TASKS":
+      if (sender.tab || sender.url !== chrome.runtime.getURL(POPUP_PATH)) {
+        sendResponse({ ok: false, error: "Find tasks from the Vibink popup." });
+        return false;
+      }
+      return respondAsync(sendResponse, findLocalTasks());
     case "VIBINK_GET_STATUS":
       return respondAsync(sendResponse, Promise.all([
         getBridgeConfig(),
@@ -897,7 +957,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           };
         }));
     case "VIBINK_CONFIGURE_BRIDGE":
-      return respondAsync(sendResponse, configureBridge(message.baseUrl));
+      return respondAsync(sendResponse, configureBridge(message.baseUrl, message.taskId || null));
     case "VIBINK_PAIR":
       return respondAsync(sendResponse, pairBridge(message.pin));
     case "VIBINK_DISCONNECT":

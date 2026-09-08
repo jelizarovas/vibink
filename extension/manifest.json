@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vibink",
-  "version": "0.1.5",
+  "version": "2.0.0",
   "description": "Vibe it. Ink it. Ship it. Draw and point on any webpage while coding with Codex.",
   "icons": {
     "16": "vibink-icon-16.png",

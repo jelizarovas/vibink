@@ -19,7 +19,7 @@ const TOOL_LABELS = {
 test("the injected toolbar is a coherent vertical two-column labelled control system", async () => {
   const content = await readFile(new URL("../extension/content.js", import.meta.url), "utf8");
 
-  assert.match(content, /\.vb-toolbar\{[^}]*width:146px[^}]*flex-direction:column/);
+  assert.match(content, /\.vb-toolbar\{[^}]*width:112px[^}]*flex-direction:column/);
   assert.match(content, /\.vb-tool-grid,\.vb-action-grid\{display:grid;grid-template-columns:repeat\(2/);
   assert.match(content, /\.vb-control-label\{[^}]*text-align:center/);
   assert.match(content, /function iconSvg\(name\)[\s\S]*viewBox=\"0 0 24 24\"[\s\S]*stroke-width=\"1\.8\"[\s\S]*stroke-linecap=\"round\"[\s\S]*stroke-linejoin=\"round\"/);
@@ -31,16 +31,18 @@ test("the injected toolbar is a coherent vertical two-column labelled control sy
   for (const [tool, label] of Object.entries(TOOL_LABELS)) {
     assert.match(content, new RegExp(`${tool}: \\{ label: [^}]+shortLabel: "${label}"`));
   }
-  for (const action of ["undo", "clear", "diagnostics", "capture", "suggest", "css", "info", "close"]) {
+  for (const action of ["undo", "redo", "stylus", "clear", "diagnostics", "capture", "suggest", "css", "info", "close"]) {
     assert.match(content, new RegExp(`data-action=['"]${action}['"]`));
   }
-  for (const label of ["Undo", "Clear", "Errors", "Capture", "Suggest", "CSS", "Info", "Hide", "Color"]) {
+  for (const label of ["Undo", "Redo", "Stylus", "Clear", "Errors", "Capture", "Suggest", "CSS", "Info", "Hide", "Color"]) {
     assert.match(content, new RegExp(`(?:label: "${label}"|<span>${label}</span>)`));
   }
 
   assert.match(content, /title='Clear my annotations only' aria-label='Clear my annotations only'/);
   assert.match(content, /\.vb-action\[data-action='clear'\][^}]*color:#fda4af/);
-  assert.match(content, /@media\(pointer:coarse\)[\s\S]*\.vb-tool,\.vb-action\{min-height:64px/);
+  assert.match(content, /\.vb-tool,\.vb-action\{[^}]*min-height:36px/);
+  assert.match(content, /@media\(hover:none\) and \(pointer:coarse\)[\s\S]*\.vb-tool,\.vb-action\{min-height:64px/);
+  assert.match(content, /\.vb-tool\[data-stylus='true'\]/);
   assert.doesNotMatch(content, /\.vb-row\{[^}]*overflow-x:auto/);
 });
 

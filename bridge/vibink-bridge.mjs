@@ -21,6 +21,8 @@ import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
 import { BRAIN_CATEGORIES, createBrainStore } from "./brain-store.mjs";
 import { redactText } from "./redact.mjs";
+import { createRequestStore, REQUEST_STATUSES } from "./request-store.mjs";
+import { startTaskDiscovery } from "./task-directory.mjs";
 
 const ENTRY_PATH = fileURLToPath(import.meta.url);
 const ALLOW_LAN = process.argv.includes("--allow-lan");
@@ -103,7 +105,7 @@ const SUPPORTED_MCP_PROTOCOL_VERSIONS = new Set([
   "2024-11-05",
   "2024-10-07",
 ]);
-const SERVER_VERSION = "0.1.5";
+const SERVER_VERSION = "2.0.0";
 const ALLOWED_TOOLS = new Set([
   "interact",
   "hand",
@@ -149,10 +151,19 @@ const CSS_DRAFT_LIMITS = Object.freeze({
   borderWidthPx: [0, 12],
   gapPx: [0, 64],
 });
+const MAX_CLASS_HINTS = 8;
+const MAX_PARENT_PATH = 4;
+const ALLOWED_STYLE_KEYS = new Set([
+  "display", "position", "boxSizing", "width", "height", "color", "backgroundColor",
+  "border", "borderRadius", "fontFamily", "fontSize", "fontWeight", "lineHeight",
+  "padding", "margin", "gap", "alignItems", "justifyContent",
+]);
+const EDIT_FOCUS_KINDS = new Set(["none", "component", "area", "css-draft"]);
 
 let pairing = createPairingCode();
 let pairingPresented = false;
 let revision = 0;
+let feedbackRevision = 0;
 let browserState = emptyBrowserState();
 let assistantFeedback = emptyAssistantFeedback();
 let serverError = null;
@@ -163,6 +174,8 @@ let keepAliveTimer = null;
 let captureExpiryTimer = null;
 let overlayExpiryTimer = null;
 let proposalExpiryTimer = null;
+let requestExpiryTimer = null;
+let taskDiscovery = null;
 let overlayStagingError = null;
 let rpcInput = null;
 let bridgeReadySettled = false;
@@ -187,6 +200,8 @@ const pairAttempts = new Map();
 const waiters = new Set();
 const pendingRequests = new Map();
 const brainStore = createBrainStore({ repositoryDirectory: PROJECT_ROOT });
+const requestStore = createRequestStore();
+const discoveryTaskId = crypto.randomBytes(16).toString("hex");
 
 export function normalizeExtensionIds(values) {
   const configured = values
@@ -215,6 +230,9 @@ function emptyBrowserState() {
     route: "",
     viewport: null,
     tool: "interact",
+    stylusEnabled: false,
+    stylusTool: "none",
+    drawing: false,
     selectionMode: "none",
     annotations: [],
     target: null,
@@ -222,6 +240,8 @@ function emptyBrowserState() {
     completionAck: null,
     proposalResponse: null,
     cssDraftProposal: null,
+    cssDraft: null,
+    editFocus: null,
     handwritingDraft: null,
     diagnostics: [],
     capture: null,
@@ -258,6 +278,9 @@ function emptyAssistantFeedback() {
     proposal: null,
     completionRequest: null,
     message: "",
+    requestId: null,
+    request: null,
+    previousRequest: null,
   };
 }
 
@@ -582,19 +605,57 @@ function sanitizeAnnotations(annotations, author) {
   return safe;
 }
 
+function sanitizeToolName(value, fallback = "interact") {
+  const tool = String(value || "").toLowerCase();
+  if (tool === "none") return "none";
+  return ALLOWED_TOOLS.has(tool) ? tool : fallback;
+}
+
+function sanitizeClassHint(value) {
+  const text = redactText(value, 80).replace(/[<>"'`\\]/g, "").trim();
+  if (!text || /redacted/i.test(text) || /\s/.test(text)) return "";
+  return text.slice(0, 80);
+}
+
+function sanitizeParentPath(path) {
+  if (!Array.isArray(path)) return [];
+  return path.slice(0, MAX_PARENT_PATH).map((entry) => {
+    if (!entry || typeof entry !== "object") return null;
+    const tag = redactText(entry.tag || entry.tagName, 40).toLowerCase();
+    if (!tag) return null;
+    return {
+      tag,
+      id: sanitizeIdentifier(entry.id, 80),
+      classes: Array.isArray(entry.classes)
+        ? entry.classes.map(sanitizeClassHint).filter(Boolean).slice(0, 3)
+        : [],
+    };
+  }).filter(Boolean);
+}
+
 function sanitizeSelector(value) {
   return redactText(value, 300)
     .replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "[id]")
     .replace(/\d{7,}/g, "[id]");
 }
 
-function sanitizeTarget(target) {
+export function sanitizeTarget(target) {
   if (!target || typeof target !== "object") return null;
   const tag = redactText(target.tag || target.tagName, 40).toLowerCase();
   const safeId = sanitizeIdentifier(target.id, 80);
+  const classHints = Array.isArray(target.classHints)
+    ? target.classHints.map(sanitizeClassHint).filter(Boolean).slice(0, MAX_CLASS_HINTS)
+    : Array.isArray(target.classes)
+      ? target.classes.map(sanitizeClassHint).filter(Boolean).slice(0, MAX_CLASS_HINTS)
+      : [];
+  const testId = sanitizeClassHint(target.testId);
+  const nameHint = sanitizeClassHint(target.name);
+  const labelledBy = redactText(target.labelledBy, 80);
+  if (testId && !classHints.includes(testId)) classHints.unshift(testId);
+  if (nameHint && !classHints.includes(nameHint) && classHints.length < MAX_CLASS_HINTS) classHints.push(nameHint);
   const safeClasses = Array.isArray(target.classes)
     ? target.classes.map((value) => sanitizeIdentifier(value, 50)).filter(Boolean).slice(0, 3)
-    : [];
+    : classHints.filter((value) => /^[A-Za-z_-][A-Za-z0-9_-]*$/.test(value)).slice(0, 3);
   const derivedSelector = tag
     ? `${tag}${safeId ? `#${safeId}` : safeClasses.map((value) => `.${value}`).join("")}`
     : "";
@@ -607,15 +668,10 @@ function sanitizeTarget(target) {
         height: clamp(sourceRect.height),
       }
     : null;
-  const allowedStyleKeys = new Set([
-    "display", "position", "boxSizing", "width", "height", "color", "backgroundColor",
-    "border", "borderRadius", "fontFamily", "fontSize", "fontWeight", "lineHeight",
-    "padding", "margin", "gap", "alignItems", "justifyContent",
-  ]);
   const styles = target.styles && typeof target.styles === "object"
     ? Object.fromEntries(
         Object.entries(target.styles)
-          .filter(([key]) => allowedStyleKeys.has(key))
+          .filter(([key]) => ALLOWED_STYLE_KEYS.has(key))
           .slice(0, 20)
           .map(([key, value]) => [key, redactText(value, 180)]),
       )
@@ -623,8 +679,15 @@ function sanitizeTarget(target) {
   return {
     selector: sanitizeSelector(target.selector || derivedSelector),
     tag,
+    id: safeId,
     role: redactText(target.role, 80),
     labelHint: redactText(target.labelHint || target.ariaLabel, 200),
+    classes: safeClasses,
+    classHints: classHints.slice(0, MAX_CLASS_HINTS),
+    testId,
+    name: nameHint,
+    labelledBy,
+    parentPath: sanitizeParentPath(target.parentPath),
     rect,
     styles,
   };
@@ -651,7 +714,6 @@ export function sanitizeAreaSelectionForBridge(areaSelection) {
       .slice(0, MAX_AREA_TARGETS)
       .map((candidate) => sanitizeTarget(candidate))
       .filter(Boolean)
-      .map(({ styles: _styles, ...candidate }) => candidate)
     : [];
   return { rect, candidates };
 }
@@ -702,21 +764,102 @@ export function sanitizeCssDraftProposalForBridge(proposal) {
   const proposalId = sanitizeIdentifier(proposal.proposalId, 100);
   const target = sanitizeTarget(proposal.target);
   if (!proposalId || !target) return null;
-  const properties = {};
-  for (const [name, [minimum, maximum]] of Object.entries(CSS_DRAFT_LIMITS)) {
-    if (!Object.hasOwn(proposal.properties || {}, name)) continue;
-    const value = Number(proposal.properties[name]);
-    if (!Number.isFinite(value)) continue;
-    properties[name] = clamp(value, minimum, maximum);
-  }
-  const borderColor = String(proposal.properties?.borderColor || "").toLowerCase();
-  if (ASSISTANT_ANNOTATION_COLOR_SET.has(borderColor)) properties.borderColor = borderColor;
-  if (!Object.keys(properties).length) return null;
+  const properties = sanitizeCssProperties(proposal.properties);
+  if (!properties) return null;
   return {
     proposalId,
     target,
     properties,
     note: redactText(proposal.note, 240),
+  };
+}
+
+function sanitizeCssProperties(properties) {
+  if (!properties || typeof properties !== "object") return null;
+  const next = {};
+  for (const [name, [minimum, maximum]] of Object.entries(CSS_DRAFT_LIMITS)) {
+    if (!Object.hasOwn(properties, name)) continue;
+    const value = Number(properties[name]);
+    if (!Number.isFinite(value)) continue;
+    next[name] = clamp(value, minimum, maximum);
+  }
+  const borderColor = String(properties.borderColor || "").toLowerCase();
+  if (ASSISTANT_ANNOTATION_COLOR_SET.has(borderColor)) next.borderColor = borderColor;
+  return Object.keys(next).length ? next : null;
+}
+
+function sanitizeCssDeltas(deltas) {
+  if (!deltas || typeof deltas !== "object") return {};
+  const next = {};
+  for (const [name, [minimum, maximum]] of Object.entries(CSS_DRAFT_LIMITS)) {
+    const entry = deltas[name];
+    if (!entry || typeof entry !== "object") continue;
+    const from = Number(entry.from);
+    const to = Number(entry.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) continue;
+    next[name] = {
+      from: clamp(from, minimum, maximum),
+      to: clamp(to, minimum, maximum),
+    };
+  }
+  const colorEntry = deltas.borderColor;
+  if (colorEntry && typeof colorEntry === "object") {
+    const from = String(colorEntry.from || "").toLowerCase();
+    const to = String(colorEntry.to || "").toLowerCase();
+    if (ASSISTANT_ANNOTATION_COLOR_SET.has(from) && ASSISTANT_ANNOTATION_COLOR_SET.has(to) && from !== to) {
+      next.borderColor = { from, to };
+    }
+  }
+  return next;
+}
+
+export function sanitizeCssDraftForBridge(draft) {
+  if (!draft || typeof draft !== "object") return null;
+  const target = sanitizeTarget(draft.target);
+  const values = sanitizeCssProperties(draft.values);
+  if (!target || !values) return null;
+  const submitted = draft.status === "submitted" || draft.submitted === true;
+  return {
+    target,
+    values,
+    cssDeltas: sanitizeCssDeltas(draft.cssDeltas),
+    status: submitted ? "submitted" : "previewing",
+    submitted,
+  };
+}
+
+export function sanitizeEditFocusForBridge(focus) {
+  const empty = {
+    kind: "none",
+    selector: "",
+    classHints: [],
+    parentPath: [],
+    styles: null,
+    cssDeltas: {},
+    submitted: false,
+  };
+  if (!focus || typeof focus !== "object") return empty;
+  const kind = EDIT_FOCUS_KINDS.has(String(focus.kind || "")) ? String(focus.kind) : "none";
+  if (kind === "none") return empty;
+  const classHints = Array.isArray(focus.classHints)
+    ? focus.classHints.map(sanitizeClassHint).filter(Boolean).slice(0, MAX_CLASS_HINTS)
+    : [];
+  const styles = focus.styles && typeof focus.styles === "object"
+    ? Object.fromEntries(
+        Object.entries(focus.styles)
+          .filter(([key]) => ALLOWED_STYLE_KEYS.has(key))
+          .slice(0, 20)
+          .map(([key, value]) => [key, redactText(value, 180)]),
+      )
+    : null;
+  return {
+    kind,
+    selector: sanitizeSelector(focus.selector || ""),
+    classHints,
+    parentPath: sanitizeParentPath(focus.parentPath),
+    styles,
+    cssDeltas: sanitizeCssDeltas(focus.cssDeltas),
+    submitted: kind === "css-draft" && focus.submitted === true,
   };
 }
 
@@ -1147,6 +1290,51 @@ function resetAssistantFeedback() {
   cancelOverlayExpiry();
   cancelProposalExpiry();
   assistantFeedback = emptyAssistantFeedback();
+  feedbackRevision += 1;
+}
+
+function syncRequestFeedback() {
+  if (requestStore.prune()) resetAssistantFeedback();
+  const request = requestStore.currentSummary();
+  assistantFeedback = {
+    ...assistantFeedback,
+    requestId: request?.requestId || null,
+    request,
+    previousRequest: requestStore.history()[0] || null,
+  };
+}
+
+function clearRequests() {
+  if (requestExpiryTimer) clearTimeout(requestExpiryTimer);
+  requestExpiryTimer = null;
+  requestStore.clear();
+}
+
+function startRequest() {
+  requireEnabledBrowser();
+  const request = requestStore.begin(browserState);
+  resetAssistantFeedback();
+  scopeFeedbackToBrowser();
+  syncRequestFeedback();
+  if (requestExpiryTimer) clearTimeout(requestExpiryTimer);
+  requestExpiryTimer = setTimeout(() => {
+    requestExpiryTimer = null;
+    requestStore.prune();
+    if (requestStore.currentSummary()) return;
+    resetAssistantFeedback();
+    syncRequestFeedback();
+    publishFeedbackEvent("request-expired");
+  }, Math.max(1, Date.parse(request.expiresAt) - Date.now()));
+  requestExpiryTimer.unref?.();
+  publishFeedbackEvent("request-received");
+  return request;
+}
+
+function scopeRequestFeedback(args) {
+  requireEnabledBrowser();
+  requestStore.assertFeedback(args.request_id, browserState);
+  scopeFeedbackToBrowser();
+  syncRequestFeedback();
 }
 
 function assistantFeedbackSummary() {
@@ -1179,6 +1367,7 @@ function pruneExpiredOverlays(now = Date.now(), publish = false) {
     return false;
   }
   assistantFeedback = { ...assistantFeedback, updatedAt: new Date(now).toISOString(), overlays };
+  if (!publish) feedbackRevision += 1;
   scheduleOverlayExpiry();
   if (publish) publishFeedbackEvent("assistant-overlay-expired");
   return true;
@@ -1207,6 +1396,7 @@ function pruneExpiredProposal(now = Date.now(), publish = false) {
     proposal: null,
   };
   cancelProposalExpiry();
+  if (!publish) feedbackRevision += 1;
   if (publish) publishFeedbackEvent("assistant-proposal-expired");
   return true;
 }
@@ -1238,6 +1428,10 @@ function warmContextReadiness(now = Date.now()) {
     annotationCount: browserState.annotations.length,
     hasCapture: Boolean(browserState.capture),
     hasHandwritingDraft: Boolean(browserState.handwritingDraft),
+    hasCssDraft: Boolean(browserState.cssDraft),
+    editFocusKind: browserState.editFocus?.kind || "none",
+    drawing: browserState.drawing === true,
+    stylusTool: browserState.stylusTool || "none",
   };
 }
 
@@ -1246,8 +1440,11 @@ function stateSummary({ includeCapture = false } = {}) {
   pruneExpiredCapture();
   pruneExpiredOverlays();
   pruneExpiredProposal();
+  syncRequestFeedback();
   const snapshot = {
     revision,
+    request: requestStore.current(),
+    requestHistory: requestStore.history(),
     warmContext: warmContextReadiness(),
     bridge: {
       url: bridgeUrls()[0],
@@ -1289,6 +1486,7 @@ function bumpRevision(type, payload = {}) {
 }
 
 function publishFeedbackEvent(type = "assistant-feedback") {
+  feedbackRevision += 1;
   return bumpRevision(type, { feedback: assistantFeedback });
 }
 
@@ -1305,6 +1503,7 @@ function pruneStaleBrowserState(now = Date.now()) {
   const lastUpdate = Date.parse(browserState.receivedAt || "");
   if (Number.isFinite(lastUpdate) && now - lastUpdate <= BROWSER_STATE_TTL_MS) return false;
   const staleState = browserState;
+  clearRequests();
   cancelCaptureExpiry();
   browserState = createDisabledBrowserState({
     receivedAt: new Date(now).toISOString(),
@@ -1333,6 +1532,7 @@ function pruneSessions() {
     }
   }
   if (removed && sessions.size === 0) {
+    clearRequests();
     cancelCaptureExpiry();
     browserState = emptyBrowserState();
     resetAssistantFeedback();
@@ -1342,6 +1542,7 @@ function pruneSessions() {
 
 function issueSession(remoteAddress, origin) {
   pruneSessions();
+  clearRequests();
   sessions.clear();
   cancelCaptureExpiry();
   browserState = emptyBrowserState();
@@ -1365,6 +1566,7 @@ function revokeSession(token, eventType = "session-disconnected") {
   if (!sessions.delete(token)) return null;
   cancelCaptureExpiry();
   browserState = emptyBrowserState();
+  clearRequests();
   resetAssistantFeedback();
   return bumpRevision(eventType);
 }
@@ -1510,6 +1712,7 @@ async function updateBrowserState(input, session) {
     return true;
   }
   if (input?.enabled !== true) {
+    clearRequests();
     cancelCaptureExpiry();
     browserState = createDisabledBrowserState({
       receivedAt,
@@ -1533,6 +1736,10 @@ async function updateBrowserState(input, session) {
     : "";
   const pageUrl = cleanPageUrl(input?.pageUrl || input?.url || composedPageUrl);
   const route = cleanRoute(input?.route || pageUrl || "/");
+  const sameContext = sameActivation
+    && browserState.pageUrl === pageUrl
+    && browserState.route === route
+    && browserState.contextRevision === clamp(input?.contextRevision, 0, Number.MAX_SAFE_INTEGER);
   const captureDataUrl = input?.captureDataUrl || input?.capture || null;
   const target = sanitizeTarget(input?.target || input?.selectedTarget);
   const areaSelection = sanitizeAreaSelectionForBridge(input?.areaSelection);
@@ -1577,7 +1784,10 @@ async function updateBrowserState(input, session) {
     pageUrl,
     route,
     viewport: sanitizeViewport(input?.viewport),
-    tool: ALLOWED_TOOLS.has(input?.tool) ? input.tool : "interact",
+    tool: sanitizeToolName(input?.tool, "interact"),
+    stylusEnabled: input?.stylusEnabled === true,
+    stylusTool: sanitizeToolName(input?.stylusTool, "none"),
+    drawing: input?.drawing === true,
     selectionMode,
     annotations: sanitizeAnnotations(input?.annotations, "user"),
     target: selectionMode === "component" ? target : null,
@@ -1586,10 +1796,14 @@ async function updateBrowserState(input, session) {
     proposalResponse,
     cssDraftProposal: Object.hasOwn(input || {}, "cssDraftProposal")
       ? sanitizeCssDraftProposalForBridge(input?.cssDraftProposal)
-      : (sameActivation ? browserState.cssDraftProposal : null),
+      : (sameContext ? browserState.cssDraftProposal : null),
+    cssDraft: Object.hasOwn(input || {}, "cssDraft")
+      ? sanitizeCssDraftForBridge(input?.cssDraft)
+      : (sameContext ? browserState.cssDraft : null),
+    editFocus: sanitizeEditFocusForBridge(input?.editFocus),
     handwritingDraft: Object.hasOwn(input || {}, "handwritingDraft")
       ? sanitizeHandwritingDraftForBridge(input?.handwritingDraft)
-      : (sameActivation ? browserState.handwritingDraft : null),
+      : (sameContext ? browserState.handwritingDraft : null),
     diagnostics: input?.diagnosticsEnabled === true
       ? sanitizeDiagnostics(input?.diagnostics)
       : [],
@@ -1608,11 +1822,12 @@ async function updateBrowserState(input, session) {
     )
   );
   if (contextChanged) {
+    requestStore.invalidate("context_changed");
     next.capture = null;
     next.completionAck = null;
     next.proposalResponse = null;
-    next.cssDraftProposal = null;
     resetAssistantFeedback();
+    syncRequestFeedback();
     publishFeedbackEvent("context-changed");
   }
   if (!contextChanged && completionAckCandidate && completionAck === completionAckCandidate && completionRequest) {
@@ -1641,6 +1856,15 @@ async function updateBrowserState(input, session) {
     };
   }
   browserState = next;
+  if (!contextChanged && input?.ownerReviewIntent) {
+    // A stale browser intent must never reject the newer sanitized page state.
+    try {
+      if (requestStore.review(input.ownerReviewIntent, browserState)) {
+        syncRequestFeedback();
+        publishFeedbackEvent("owner-review-intent");
+      }
+    } catch { /* Ignore stale or malformed owner intent. */ }
+  }
   if (captureDataUrl && input?.captureConsented === true && next.capture) {
     scheduleCaptureExpiry(next.capture.receivedAt);
   }
@@ -1656,6 +1880,8 @@ async function updateBrowserState(input, session) {
     completionStatus: next.completionAck?.status || null,
     proposalStatus: next.proposalResponse?.status || null,
     hasCssDraftProposal: Boolean(next.cssDraftProposal),
+    hasCssDraft: Boolean(next.cssDraft),
+    editFocusKind: next.editFocus?.kind || "none",
     hasHandwritingDraft: Boolean(next.handwritingDraft),
     hasCapture: Boolean(next.capture),
   });
@@ -1692,6 +1918,7 @@ async function handleHttp(request, response) {
         ok: !serverError,
         name: "vibink",
         version: SERVER_VERSION,
+        taskId: discoveryTaskId,
         pairingRequired: true,
         browserConnections: browserState.enabled ? 1 : 0,
         revision,
@@ -1706,6 +1933,10 @@ async function handleHttp(request, response) {
         return;
       }
       const body = await readJson(request, MAX_PAIR_BODY_BYTES);
+      if (body.taskId !== undefined && body.taskId !== discoveryTaskId) {
+        sendJson(response, 409, { ok: false, error: "That task is no longer available. Refresh the task list." });
+        return;
+      }
       const suppliedPin = normalizePairingPin(body.pin);
       const activePairing = currentPairing();
       const pinMatches = suppliedPin !== null
@@ -1746,13 +1977,56 @@ async function handleHttp(request, response) {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/browser/request") {
+      const authorization = authorizedSession(request);
+      if (!authorization) {
+        sendJson(response, 401, { ok: false, error: "Pair Vibink first." });
+        return;
+      }
+      const body = await readJson(request, MAX_PAIR_BODY_BYTES);
+      const currentAuthorization = authorizedSession(request);
+      if (!currentAuthorization || currentAuthorization.session !== authorization.session) {
+        sendJson(response, 401, { ok: false, error: "The Vibink session changed. Pair again." });
+        return;
+      }
+      if (browserState.sessionId !== authorization.session.sessionId
+        || body.pageInstanceId !== browserState.pageInstanceId
+        || body.activationEpoch !== browserState.activationEpoch
+        || body.contextRevision !== browserState.contextRevision
+        || body.expectedSequence !== browserState.sequence) {
+        sendJson(response, 409, { ok: false, error: "The selection changed. Try starting the request again." });
+        return;
+      }
+      startRequest();
+      sendJson(response, 200, { ok: true, request: requestStore.currentSummary(), revision, feedbackRevision });
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/feedback") {
       const authorization = authorizedSession(request);
       if (!authorization) {
         sendJson(response, 401, { ok: false, error: "Pair Vibink first." });
         return;
       }
-      await readJson(request, MAX_PAIR_BODY_BYTES);
+      const body = await readJson(request, MAX_PAIR_BODY_BYTES);
+      const afterFeedbackRevision = body?.afterFeedbackRevision;
+      const deadline = Date.now() + clamp(body?.waitMs ?? 0, 0, 1500);
+      const controller = new AbortController();
+      const cancelWait = () => controller.abort();
+      response.once("close", cancelWait);
+      try {
+        pruneExpiredOverlays();
+        pruneExpiredProposal();
+        // Browser activity must not replay assistant feedback or end a feedback wait.
+        while (afterFeedbackRevision === feedbackRevision && Date.now() < deadline && !controller.signal.aborted) {
+          await waitForRevision(revision, deadline - Date.now(), controller.signal);
+          pruneExpiredOverlays();
+          pruneExpiredProposal();
+        }
+      } finally {
+        response.off("close", cancelWait);
+      }
+      if (controller.signal.aborted) return;
       const currentAuthorization = authorizedSession(request);
       if (
         !currentAuthorization
@@ -1764,7 +2038,14 @@ async function handleHttp(request, response) {
       }
       pruneExpiredOverlays();
       pruneExpiredProposal();
-      sendJson(response, 200, { ok: true, revision, feedback: assistantFeedback });
+      const unchanged = afterFeedbackRevision === feedbackRevision;
+      sendJson(response, 200, {
+        ok: true,
+        revision,
+        feedbackRevision,
+        unchanged,
+        ...(unchanged ? {} : { feedback: assistantFeedback }),
+      });
       return;
     }
 
@@ -1822,10 +2103,17 @@ httpServer.on("error", (error) => {
   settleBridgeReady();
 });
 
-httpServer.on("listening", () => {
+httpServer.on("listening", async () => {
   const address = httpServer.address();
   if (address && typeof address === "object") activePort = address.port;
   serverError = null;
+  if (["127.0.0.1", "localhost", "0.0.0.0"].includes(HOST) && EXTENSION_IDS.length) {
+    try {
+      taskDiscovery = await startTaskDiscovery({ port: activePort, extensionIds: EXTENSION_IDS, taskId: discoveryTaskId });
+    } catch {
+      log("Local task discovery is unavailable. Manual pairing is still available.");
+    }
+  }
   settleBridgeReady();
   log(`Bridge listening on http://${formatHostForUrl(HOST)}:${activePort}`);
   if (CONFIGURATION_ERROR) log(CONFIGURATION_ERROR);
@@ -1837,6 +2125,26 @@ function tool(name, description, inputSchema, annotations = {}) {
 
 export const VIBINK_TOOLS = [
   tool(
+    "vibink_begin_request",
+    "Snapshot the current sanitized selection, marks, and edit focus as one bounded in-memory request. Read vibink_get_state first; if the owner already started a current request, reuse its requestId instead of replacing it. Starting another request invalidates prior feedback. It does not authorize source edits or capture a screenshot.",
+    { type: "object", properties: {}, additionalProperties: false },
+    { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  ),
+  tool(
+    "vibink_update_request",
+    "Acknowledge actual progress on the current request. Report working, preview_ready, needs_answer, completed, or failed only when that condition is true. completed reports source work finished; it is not owner approval. Owner review intents require explicit handling by Codex and never apply or revert source automatically.",
+    {
+      type: "object",
+      properties: {
+        request_id: { type: "string", minLength: 1, maxLength: 100 },
+        status: { type: "string", enum: REQUEST_STATUSES },
+        message: { type: "string", maxLength: 500 },
+      },
+      required: ["request_id", "status"], additionalProperties: false,
+    },
+    { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  ),
+  tool(
     "vibink_connection_info",
     "Get the private Vibink bridge endpoints, fixed development pairing PIN, configured extension count, and connection status.",
     { type: "object", properties: {}, additionalProperties: false },
@@ -1844,7 +2152,7 @@ export const VIBINK_TOOLS = [
   ),
   tool(
     "vibink_get_state",
-    "Read the task-scoped in-memory warm context immediately: latest sanitized route, viewport, component/area selection, drawings, proposal responses, CSS draft, diagnostics, feedback, and optional explicitly captured frame.",
+    "Read the task-scoped in-memory warm context immediately: latest sanitized route, viewport, editFocus, component/area selection, drawings, live CSS draft deltas, proposal responses, diagnostics, feedback, and optional explicitly captured frame. If editFocus.kind is css-draft or component, search the open workspace for classHints/selector/testId first and apply any cssDeltas; do not scan unrelated files first. If drawing is true or stylusTool is an ink tool while tool is interact, the owner may still be inking with the pen.",
     {
       type: "object",
       properties: {
@@ -1859,7 +2167,7 @@ export const VIBINK_TOOLS = [
   ),
   tool(
     "vibink_wait_for_update",
-    "Wait briefly for the paired page or assistant feedback to change, then return the newest sanitized state.",
+    "Wait briefly for the paired page or assistant feedback to change, then return the newest sanitized state. Use this only while drawing is true or the owner is still selecting, not as a delay before the first source edit.",
     {
       type: "object",
       properties: {
@@ -2078,6 +2386,19 @@ export const VIBINK_TOOLS = [
   ),
 ];
 
+const REQUEST_FEEDBACK_TOOLS = new Set([
+  "vibink_send_message", "vibink_draw", "vibink_publish_proposal", "vibink_complete_task",
+  "vibink_publish_overlay", "vibink_clear_feedback",
+]);
+for (const definition of VIBINK_TOOLS) {
+  if (!REQUEST_FEEDBACK_TOOLS.has(definition.name)) continue;
+  definition.inputSchema.properties.request_id = {
+    type: "string", minLength: 1, maxLength: 100,
+    description: "Current requestId returned by Vibink. Required once a request has begun; stale IDs are rejected.",
+  };
+  definition.description += " Pass the current request_id after beginning a request; old request feedback is rejected.";
+}
+
 export const VIBINK_TOOL_NAMES = VIBINK_TOOLS.map(({ name }) => name);
 
 function argumentError(pathName, message) {
@@ -2225,6 +2546,17 @@ function waitForRevision(afterRevision, timeoutMs, signal) {
 async function callTool(name, args = {}, signal) {
   args = validateToolArguments(name, args);
   switch (name) {
+    case "vibink_begin_request":
+      return { content: [textContent({ ok: true, request: startRequest(), revision })] };
+
+    case "vibink_update_request": {
+      requireEnabledBrowser();
+      requestStore.update(args.request_id, args.status, args.message === undefined ? undefined : redactText(args.message, 500), browserState);
+      scopeFeedbackToBrowser();
+      syncRequestFeedback();
+      const event = publishFeedbackEvent("request-progress");
+      return { content: [textContent({ ok: true, request: requestStore.currentSummary(), revision: event.revision })] };
+    }
     case "vibink_connection_info": {
       await bridgeReady;
       const activePairing = pairingForPresentation();
@@ -2247,6 +2579,7 @@ async function callTool(name, args = {}, signal) {
           overlayDirectoryNote: "Place a non-sensitive PNG here, then call vibink_publish_overlay with only its filename. Vibink consumes the staged file after validation.",
           overlayDirectoryError: overlayStagingError,
           brainCategories: BRAIN_CATEGORIES,
+          taskDirectory: taskDiscovery ? { taskId: taskDiscovery.taskId, label: taskDiscovery.label } : null,
           browserConnections: browserState.enabled ? 1 : 0,
           warmContext: warmContextReadiness(),
           revision,
@@ -2265,8 +2598,7 @@ async function callTool(name, args = {}, signal) {
     }
 
     case "vibink_send_message": {
-      requireEnabledBrowser();
-      scopeFeedbackToBrowser();
+      scopeRequestFeedback(args);
       const message = redactText(args.message, 500);
       if (!message) throw new Error("A message is required.");
       assistantFeedback = {
@@ -2278,8 +2610,7 @@ async function callTool(name, args = {}, signal) {
     }
 
     case "vibink_draw": {
-      requireEnabledBrowser();
-      scopeFeedbackToBrowser();
+      scopeRequestFeedback(args);
       const incoming = sanitizeAnnotations(args.annotations, "assistant");
       assistantFeedback = {
         ...assistantFeedback,
@@ -2302,8 +2633,7 @@ async function callTool(name, args = {}, signal) {
     }
 
     case "vibink_publish_proposal": {
-      requireEnabledBrowser();
-      scopeFeedbackToBrowser();
+      scopeRequestFeedback(args);
       if (assistantFeedback.completionRequest) {
         throw new Error("Wait for the owner to answer the current completion question before publishing a visual proposal.");
       }
@@ -2349,8 +2679,7 @@ async function callTool(name, args = {}, signal) {
     }
 
     case "vibink_complete_task": {
-      requireEnabledBrowser();
-      scopeFeedbackToBrowser();
+      scopeRequestFeedback(args);
       pruneExpiredProposal();
       if (assistantFeedback.proposal) {
         throw new Error("Resolve or clear the active visual proposal before completing this task.");
@@ -2396,10 +2725,10 @@ async function callTool(name, args = {}, signal) {
     case "vibink_publish_overlay":
       return runOverlayMutation(async () => {
       if (signal?.aborted) throw new Error("Overlay publication was cancelled.");
-      requireEnabledBrowser();
-      scopeFeedbackToBrowser();
+      scopeRequestFeedback(args);
       pruneExpiredOverlays();
       const intendedContext = {
+        requestId: requestStore.currentSummary()?.requestId || null,
         sessionId: browserState.sessionId,
         pageInstanceId: browserState.pageInstanceId,
         activationEpoch: browserState.activationEpoch,
@@ -2408,6 +2737,7 @@ async function callTool(name, args = {}, signal) {
         route: browserState.route,
       };
       const contextStillMatches = () => browserState.enabled
+        && (requestStore.currentSummary()?.requestId || null) === intendedContext.requestId
         && browserState.sessionId === intendedContext.sessionId
         && browserState.pageInstanceId === intendedContext.pageInstanceId
         && browserState.activationEpoch === intendedContext.activationEpoch
@@ -2486,6 +2816,7 @@ async function callTool(name, args = {}, signal) {
     case "vibink_clear_feedback":
       return runOverlayMutation(async () => {
         if (signal?.aborted) throw new Error("Feedback clearing was cancelled.");
+        requestStore.assertFeedback(args.request_id, browserState);
         cancelOverlayExpiry();
         cancelProposalExpiry();
         assistantFeedback = {
@@ -2554,7 +2885,7 @@ async function handleRpc(message) {
             : MCP_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "vibink", version: SERVER_VERSION },
-          instructions: "When the owner asks to connect Vibink, call vibink_connection_info and provide its exact bridge URL. The private development demo currently uses the prefilled PIN 0000. Then ask them to click the extension on the intended page. Once active, Vibink keeps a sanitized task-scoped warm context in this bridge; call vibink_get_state at the start of a voice request for the immediate cached selection, area, annotations, route, and viewport. Captures remain explicit only. Use Vibink as visual context, never as source-edit authorization. Use vibink_draw for bounded colored pen/highlighter/circle feedback, vibink_publish_proposal for a transient adjustable visual draft, and vibink_send_message for concise suggestions. Proposal approval confirms visual intent only. When work appears finished, call vibink_complete_task only to ask the owner whether it is good enough; only their Looks good action clears user marks, while Needs tweaks preserves context. Pairing stays active. Never echo sensitive page data. Use vibink_publish_overlay only for non-sensitive PNGs staged in the returned overlayDirectory. Read reusable learnings when relevant; call vibink_record_learning only after the owner explicitly confirms the exact non-personal learning to preserve.",
+          instructions: "When the owner asks to connect Vibink, call vibink_connection_info and identify the matching task label in the extension task picker, or provide its exact bridge URL for manual pairing. The private development demo currently uses the prefilled PIN 0000. Then ask them to click the extension on the intended page. Call vibink_get_state at the start of work. Reuse its current request.requestId when present; otherwise begin a request with vibink_begin_request once the owner has finished marking. Pass that request_id to every feedback tool. Report actual progress using vibink_update_request; never infer progress from elapsed time. Browser-started received means bridge receipt, not that Codex has started. Context changes invalidate old requests and spatial feedback. Read the current selection again before beginning another request. ownerReviewIntent is only a requested action; keep, request_changes, and revert do not themselves apply or revert source. Handle the owner's intent through normal workspace tools and report the actual result. Use the snapshot's editFocus, selection, area, CSS draft deltas, annotations, route, and viewport. If editFocus.kind is css-draft or component, search classHints, selector, and testId first. Apply cssDeltas only within the owner's authorized scope. Treat submitted:true as the owner locking the draft; treat previewing as a match-the-preview request only when asked. If drawing is true or tool is interact while stylusTool is an ink or select tool, the owner may still be marking. Wait for updates only while they are drawing or selecting. Captures remain explicit. Visual context never grants source-edit authorization. Use vibink_draw for bounded annotations, vibink_publish_proposal for a transient adjustable draft, and vibink_send_message for concise suggestions. Proposal approval confirms visual intent only. Call vibink_complete_task only when work is actually finished to ask whether it is good enough; only Looks good clears user marks. Needs tweaks preserves context. Pairing stays active. Never echo sensitive page data. Publish only non-sensitive PNGs staged inside the returned overlayDirectory. Read learnings when relevant; record only the exact non-personal learning the owner explicitly confirmed.",
         });
         break;
       }
@@ -2648,6 +2979,8 @@ export async function startVibinkBridge() {
 async function shutdown() {
   if (keepAliveTimer) clearInterval(keepAliveTimer);
   keepAliveTimer = null;
+  clearRequests();
+  await taskDiscovery?.close();
   cancelCaptureExpiry();
   cancelOverlayExpiry();
   cancelProposalExpiry();
